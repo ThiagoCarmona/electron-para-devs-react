@@ -1,77 +1,84 @@
-# Lição 05 — Persistência com SQLite
+# Lição 06 — APIs Nativas
 
-> Nesta lição trocamos o array em memória por um banco de dados SQLite real. As notas agora sobrevivem ao fechar o app.
+> Nesta lição adicionamos menu nativo, diálogos de arquivo, notificações do sistema e tray icon.
 
-## O que mudou desde a lição 04
+## O que mudou desde a lição 05
 
 ```bash
-git diff lesson-04..lesson-05 --stat
+git diff lesson-05..lesson-06 --stat
 ```
 
 Arquivos novos:
-- `src/main/database.ts` — Configuração e inicialização do SQLite
+- `src/main/menu.ts` — Menu nativo da aplicação
+- `src/main/tray.ts` — Ícone na bandeja do sistema
 
 Arquivos modificados:
-- `package.json` — Adicionou `better-sqlite3` e `@types/better-sqlite3`
-- `src/main/notes.ts` — Agora usa SQL em vez de array
-- `src/main/index.ts` — Fecha o banco ao sair
+- `src/shared/types.ts` — Novos canais IPC
+- `src/main/index.ts` — Diálogos, notificações, menu e tray
+- `src/preload/index.ts` — Novas funções + listeners de menu
+- `src/renderer/src/App.tsx` — Integração com menu e arquivo
 
-## Por que better-sqlite3?
+## Menu nativo
 
-Existem várias opções para persistência local: JSON files, electron-store, SQLite, IndexedDB. Escolhemos `better-sqlite3` porque:
+O `src/main/menu.ts` cria um menu com atalhos de teclado:
 
-1. **Síncrono** — Não precisa de callbacks ou Promises. Roda no main process sem complicar o código.
-2. **Rápido** — É a lib SQLite mais rápida do Node.js.
-3. **Confiável** — SQLite é o banco de dados mais usado do mundo. Seu celular usa, seu navegador usa.
-4. **Bom para Electron** — Funciona bem com electron-builder para empacotar.
+- **Ctrl+N** — Nova nota
+- **Ctrl+Shift+E** — Exportar nota
+- **Ctrl+Shift+I** — Importar nota
 
-## `src/main/database.ts` — O banco
+O menu envia eventos ao renderer via `webContents.send()`. O renderer escuta esses eventos com `ipcRenderer.on()` no preload.
 
-Este arquivo cria e configura o banco de dados:
+Isso é comunicação **main → renderer** (o inverso do que fizemos até agora).
 
-- **Onde o banco fica**: `app.getPath('userData')` retorna a pasta de dados do app no sistema do usuário (ex: `%APPDATA%` no Windows, `~/Library/Application Support` no macOS).
-- **WAL mode**: `journal_mode = WAL` melhora a performance de escrita.
-- **Tabela notes**: Criada automaticamente na primeira execução com `CREATE TABLE IF NOT EXISTS`.
+## Diálogos de arquivo
 
-## `src/main/notes.ts` — SQL no lugar do array
+`dialog.showSaveDialog` e `dialog.showOpenDialog` são APIs nativas do Electron que abrem os diálogos padrão do sistema operacional. Eles:
 
-As funções têm a mesma assinatura de antes, mas agora usam SQL:
+- São assíncronos (retornam Promise)
+- Aceitam filtros de extensão
+- Retornam o caminho escolhido ou `canceled: true`
 
-- `getAllNotes()` → `SELECT * FROM notes ORDER BY updated_at DESC`
-- `createNote()` → `INSERT INTO notes ...`
-- `updateNote()` → `UPDATE notes SET ... WHERE id = ?`
-- `deleteNote()` → `DELETE FROM notes WHERE id = ?`
+## Notificações
 
-Note que usamos `?` para parâmetros (prepared statements). Isso previne SQL injection.
+A classe `Notification` do Electron cria notificações nativas do SO. No Windows aparecem no Action Center, no macOS no Notification Center.
 
-## O que não mudou
+## Tray
 
-O preload e o renderer não sabem que agora usamos SQLite. A API é a mesma: `window.api.getNotes()`, `window.api.createNote()`, etc. Essa é a vantagem de ter o preload como contrato — podemos trocar a implementação no backend sem mudar o frontend.
+O `src/main/tray.ts` cria um ícone na bandeja do sistema com menu de contexto. Clicar no ícone mostra/esconde a janela.
+
+## Comunicação bidirecional
+
+Até agora tínhamos só renderer → main (invoke/handle). Agora também temos main → renderer:
+
+```
+Renderer → Main:  ipcRenderer.invoke / ipcMain.handle  (request/response)
+Main → Renderer:  webContents.send / ipcRenderer.on    (push/event)
+```
 
 ## Teste seu entendimento
 
-1. Por que não usamos SQLite diretamente no renderer?
-2. O que é WAL mode e por que ativamos?
-3. O que acontece se dois processos tentarem escrever no banco ao mesmo tempo?
+1. Por que usamos `webContents.send` do menu em vez de `ipcMain.handle`?
+2. Por que o diálogo de arquivo roda no main process e não no renderer?
+3. Qual a diferença entre `dialog.showSaveDialog` e `dialog.showSaveDialogSync`?
 
 <details>
 <summary>Ver respostas</summary>
 
-1. O renderer roda em ambiente de navegador e não tem acesso ao filesystem. Além disso, seria inseguro — qualquer código no renderer teria acesso ao banco.
-2. WAL (Write-Ahead Logging) permite leituras e escritas simultâneas. Sem WAL, uma escrita bloqueia todas as leituras.
-3. No nosso caso não é problema porque só o main process acessa o banco. Se tivéssemos múltiplos processos, o SQLite com WAL lida bem com isso.
+1. Porque o menu é quem inicia a ação (main → renderer), não o renderer. `handle` espera o renderer chamar; `send` envia proativamente.
+2. Porque diálogos de arquivo são APIs do sistema operacional, acessíveis apenas no main process via Node.js.
+3. A versão síncrona bloqueia o main process até o usuário fechar o diálogo. A versão assíncrona não bloqueia — preferimos ela.
 
 </details>
 
 ## Desafio
 
-Adicione uma coluna `pinned` (INTEGER, 0 ou 1) à tabela. Notas fixadas devem aparecer primeiro na lista. Atualize o `getAllNotes` para ordenar: fixadas primeiro, depois por data.
+Adicione um item "Exportar Todas" no menu que exporta todas as notas em um único arquivo Markdown, com cada nota separada por `---`.
 
 ## Próxima lição
 
 ```bash
-git checkout lesson-06
+git checkout lesson-07
 npm install
 ```
 
-Na lição 06, vamos adicionar menus nativos, diálogos de arquivo, notificações e tray icon.
+Na lição 07, vamos adicionar Zustand para gerenciamento de estado no renderer.

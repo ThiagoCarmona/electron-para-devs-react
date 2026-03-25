@@ -6,10 +6,12 @@ export interface Note {
   updatedAt: string
 }
 
-// Canais IPC usados pelo app
 export const IPC_CHANNELS = {
   NOTES_GET_ALL: 'notes:getAll',
   NOTES_CREATE: 'notes:create',
   NOTES_UPDATE: 'notes:update',
-  NOTES_DELETE: 'notes:delete'
+  NOTES_DELETE: 'notes:delete',
+  NOTES_EXPORT: 'notes:export',
+  NOTES_IMPORT: 'notes:import',
+  APP_SHOW_NOTIFICATION: 'app:showNotification'
 } as const
