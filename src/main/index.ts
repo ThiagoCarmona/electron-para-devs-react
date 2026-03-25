@@ -1,3 +1,12 @@
+// ============================================================
+// src/main/index.ts — Main process com handlers IPC
+//
+// MUDANÇA NESTA LIÇÃO:
+// - Importa funções de CRUD de ./notes
+// - Registra 4 handlers IPC (como endpoints de API)
+// - O renderer agora pede dados via IPC em vez de ter estado local
+// ============================================================
+
 import { app, shell, BrowserWindow, ipcMain } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
@@ -32,7 +41,17 @@ function createWindow(): void {
   }
 }
 
-// Registra os handlers IPC para o CRUD de notas
+/**
+ * Registra os handlers IPC — pense neles como rotas de uma API REST:
+ *
+ * GET  /notes       →  notes:getAll
+ * POST /notes       →  notes:create
+ * PUT  /notes/:id   →  notes:update
+ * DELETE /notes/:id →  notes:delete
+ *
+ * O primeiro parâmetro '_' é o evento IPC (ignoramos aqui).
+ * Os demais são os argumentos enviados pelo renderer.
+ */
 function registerIpcHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.NOTES_GET_ALL, () => {
     return getAllNotes()
@@ -58,6 +77,7 @@ app.whenReady().then(() => {
     optimizer.watchWindowShortcuts(window)
   })
 
+  // Registra handlers ANTES de criar a janela
   registerIpcHandlers()
   createWindow()
 

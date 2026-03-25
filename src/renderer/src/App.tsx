@@ -1,3 +1,13 @@
+// ============================================================
+// App.tsx — Agora busca dados do main process via IPC
+//
+// MUDANÇA NESTA LIÇÃO:
+// - Não tem mais sampleNotes hardcoded
+// - Todas as operações são async/await (IPC retorna Promises)
+// - useEffect carrega as notas do main process ao iniciar
+// - Estado 'loading' mostra feedback enquanto carrega
+// ============================================================
+
 import { useState, useEffect } from 'react'
 import { NoteList } from './components/NoteList'
 import { NoteEditor } from './components/NoteEditor'
@@ -9,7 +19,7 @@ function App(): JSX.Element {
   const [selectedNote, setSelectedNote] = useState<Note | null>(null)
   const [loading, setLoading] = useState(true)
 
-  // Carrega as notas do main process ao iniciar
+  // Carrega as notas do main process ao montar o componente
   useEffect(() => {
     window.api.getNotes().then((data) => {
       setNotes(data)
@@ -22,6 +32,8 @@ function App(): JSX.Element {
     setSelectedNote(note)
   }
 
+  // ANTES: síncrono (setNotes direto)
+  // AGORA: assíncrono (espera o main process atualizar, depois atualiza o estado)
   const handleUpdateNote = async (id: string, title: string, content: string): Promise<void> => {
     const updated = await window.api.updateNote(id, title, content)
     if (!updated) return
