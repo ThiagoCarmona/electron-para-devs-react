@@ -1,24 +1,38 @@
 appId: com.electron.notas
-productName: electron-notas
+productName: Electron Notas
 directories:
   buildResources: build
+  output: dist
 files:
   - '!**/.vscode/*'
   - '!src/*'
+  - '!tests/*'
   - '!electron.vite.config.{js,ts,mjs,cjs}'
   - '!{.eslintignore,.eslintrc.cjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
   - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+  - '!{vitest.config.ts,playwright.config.ts}'
+extraMetadata:
+  main: ./out/main/index.js
 asarUnpack:
   - resources/**
+  - node_modules/better-sqlite3/**
 win:
   executableName: electron-notas
+  icon: build/icon.ico
+  target:
+    - target: nsis
+      arch:
+        - x64
 nsis:
   artifactName: ${name}-${version}-setup.${ext}
   shortcutName: ${productName}
   uninstallDisplayName: ${productName}
   createDesktopShortcut: always
+  oneClick: false
+  allowToChangeInstallationDirectory: true
 mac:
+  icon: build/icon.icns
   entitlementsInherit: build/entitlements.mac.plist
   extendInfo:
     - NSCameraUsageDescription: Application requests access to the device's camera.
@@ -26,14 +40,23 @@ mac:
     - NSDocumentsFolderUsageDescription: Application requests access to the user's Documents folder.
     - NSDownloadsFolderUsageDescription: Application requests access to the user's Downloads folder.
   notarize: false
+  target:
+    - target: dmg
+      arch:
+        - x64
+        - arm64
 linux:
+  icon: build/icons
   target:
     - AppImage
-    - snap
     - deb
-  maintainer: electronjs.org
+  maintainer: Thiago Carmona
   category: Utility
-npmRebuild: false
+  desktop:
+    Name: Electron Notas
+    Comment: App de notas desktop
+npmRebuild: true
 publish:
-  provider: generic
-  url: https://example.com/auto-updates
+  provider: github
+  owner: ThiagoCarmona
+  repo: electron-para-devs-react
