@@ -1,10 +1,18 @@
+/**
+ * menu.ts — Menu nativo da aplicação
+ *
+ * Conceitos-chave:
+ * - `role`: atalhos para ações padrão do sistema (copiar, colar, sair, etc.)
+ * - `accelerator`: atalho de teclado personalizado (ex.: "CmdOrCtrl+N")
+ * - `click` + `webContents.send()`: IPC main → renderer
+ */
+
 import { Menu, BrowserWindow, app } from 'electron'
 
 export function createAppMenu(mainWindow: BrowserWindow): void {
   const isMac = process.platform === 'darwin'
 
   const template: Electron.MenuItemConstructorOptions[] = [
-    // Menu do app (só no macOS)
     ...(isMac
       ? [
           {
@@ -17,7 +25,6 @@ export function createAppMenu(mainWindow: BrowserWindow): void {
           }
         ]
       : []),
-    // Arquivo
     {
       label: 'Arquivo',
       submenu: [
@@ -47,7 +54,6 @@ export function createAppMenu(mainWindow: BrowserWindow): void {
         isMac ? { role: 'close' } : { role: 'quit' }
       ]
     },
-    // Editar
     {
       label: 'Editar',
       submenu: [
@@ -60,7 +66,6 @@ export function createAppMenu(mainWindow: BrowserWindow): void {
         { role: 'selectAll' }
       ]
     },
-    // Visualizar
     {
       label: 'Visualizar',
       submenu: [

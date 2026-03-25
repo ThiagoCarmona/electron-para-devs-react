@@ -1,3 +1,19 @@
+/**
+ * App.tsx — Componente raiz (Lição 07)
+ *
+ * Compare este arquivo com o App.tsx da lição 06:
+ * - Antes: ~100 linhas com useState, useCallback, lógica de CRUD inline
+ * - Agora: ~60 linhas — toda a lógica migrou para useNoteStore
+ *
+ * O componente agora é praticamente só UI + efeitos.
+ * Toda lógica de estado e ações vive na store Zustand.
+ *
+ * Benefícios:
+ * - App.tsx fica mais fácil de ler e manter
+ * - Qualquer outro componente pode acessar a store sem prop drilling
+ * - As funções da store têm referência estável (não mudam a cada render)
+ */
+
 import { useEffect } from 'react'
 import { NoteList } from './components/NoteList'
 import { NoteEditor } from './components/NoteEditor'
@@ -5,6 +21,7 @@ import { useNoteStore } from './store/useNoteStore'
 import './styles/global.css'
 
 function App(): JSX.Element {
+  // Desestruturação da store — todas as ações e estado vem do Zustand
   const {
     notes,
     selectedNote,
@@ -23,11 +40,18 @@ function App(): JSX.Element {
     loadNotes()
   }, [loadNotes])
 
-  // Escuta eventos do menu nativo
+  // Escuta eventos do menu nativo (IPC main → renderer)
+  // As funções onMenu*() retornam cleanup functions para evitar listeners duplicados
   useEffect(() => {
-    window.api.onMenuNewNote(() => createNote())
-    window.api.onMenuExportNote(() => exportNote())
-    window.api.onMenuImportNote(() => importNote())
+    const cleanupNew = window.api.onMenuNewNote(() => createNote())
+    const cleanupExport = window.api.onMenuExportNote(() => exportNote())
+    const cleanupImport = window.api.onMenuImportNote(() => importNote())
+
+    return (): void => {
+      cleanupNew()
+      cleanupExport()
+      cleanupImport()
+    }
   }, [createNote, exportNote, importNote])
 
   if (loading) {
@@ -64,5 +88,8 @@ function App(): JSX.Element {
     </div>
   )
 }
+
+// DESAFIO: Extraia o contador de notas da store e exiba "X notas" no header.
+// Dica: você pode criar um seletor derivado com useNoteStore((s) => s.notes.length)
 
 export default App

@@ -1,3 +1,10 @@
+/**
+ * index.ts — Main Process (ponto de entrada do Electron)
+ *
+ * Contém: menu nativo, tray, diálogos de arquivo, notificações e IPC handlers.
+ * A partir desta lição, a lógica de estado migrou para Zustand no renderer.
+ */
+
 import { app, shell, BrowserWindow, ipcMain, dialog, Notification } from 'electron'
 import { join } from 'path'
 import { writeFileSync, readFileSync } from 'fs'
@@ -15,7 +22,7 @@ function createWindow(): void {
     width: 900,
     height: 670,
     show: false,
-    autoHideMenuBar: false, // Agora mostramos o menu
+    autoHideMenuBar: false,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false
@@ -37,7 +44,6 @@ function createWindow(): void {
     mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
   }
 
-  // Configura menu e tray
   createAppMenu(mainWindow)
   createTray(mainWindow)
 }
@@ -45,51 +51,58 @@ function createWindow(): void {
 function registerIpcHandlers(): void {
   // CRUD de notas
   ipcMain.handle(IPC_CHANNELS.NOTES_GET_ALL, () => getAllNotes())
-  ipcMain.handle(IPC_CHANNELS.NOTES_CREATE, (_, title: string, content: string) => createNote(title, content))
-  ipcMain.handle(IPC_CHANNELS.NOTES_UPDATE, (_, id: string, title: string, content: string) => updateNote(id, title, content))
+  ipcMain.handle(IPC_CHANNELS.NOTES_CREATE, (_, title: string, content: string) =>
+    createNote(title, content)
+  )
+  ipcMain.handle(IPC_CHANNELS.NOTES_UPDATE, (_, id: string, title: string, content: string) =>
+    updateNote(id, title, content)
+  )
   ipcMain.handle(IPC_CHANNELS.NOTES_DELETE, (_, id: string) => deleteNote(id))
 
-  // Exportar nota como arquivo .txt
-  ipcMain.handle(IPC_CHANNELS.NOTES_EXPORT, async (_, title: string, content: string) => {
-    const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
-      title: 'Exportar Nota',
-      defaultPath: `${title || 'nota'}.txt`,
-      filters: [
-        { name: 'Texto', extensions: ['txt'] },
-        { name: 'Markdown', extensions: ['md'] }
-      ]
-    })
+  // Exportar nota
+  ipcMain.handle(
+    IPC_CHANNELS.NOTES_EXPORT,
+    async (_, title: string, content: string) => {
+      const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
+        title: 'Exportar Nota',
+        defaultPath: `${title || 'nota'}.txt`,
+        filters: [
+          { name: 'Texto', extensions: ['txt'] },
+          { name: 'Markdown', extensions: ['md'] }
+        ]
+      })
 
-    if (canceled || !filePath) return false
+      if (canceled || !filePath) return false
+      writeFileSync(filePath, `# ${title}\n\n${content}`, 'utf-8')
+      return true
+    }
+  )
 
-    writeFileSync(filePath, `# ${title}\n\n${content}`, 'utf-8')
-    return true
-  })
-
-  // Importar nota de arquivo .txt/.md
+  // Importar nota
   ipcMain.handle(IPC_CHANNELS.NOTES_IMPORT, async () => {
     const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
       title: 'Importar Nota',
-      filters: [
-        { name: 'Texto', extensions: ['txt', 'md'] }
-      ],
+      filters: [{ name: 'Texto', extensions: ['txt', 'md'] }],
       properties: ['openFile']
     })
 
     if (canceled || filePaths.length === 0) return null
 
     const content = readFileSync(filePaths[0], 'utf-8')
-    const fileName = filePaths[0].split(/[\\/]/).pop() || 'Nota importada'
+    const fileName = filePaths[0].split(/[\\\/]/).pop() || 'Nota importada'
     const title = fileName.replace(/\.(txt|md)$/, '')
 
     return createNote(title, content)
   })
 
-  // Notificação
-  ipcMain.handle(IPC_CHANNELS.APP_SHOW_NOTIFICATION, (_, title: string, body: string) => {
-    new Notification({ title, body }).show()
-    return true
-  })
+  // Notificação nativa
+  ipcMain.handle(
+    IPC_CHANNELS.APP_SHOW_NOTIFICATION,
+    (_, title: string, body: string) => {
+      new Notification({ title, body }).show()
+      return true
+    }
+  )
 }
 
 app.whenReady().then(() => {

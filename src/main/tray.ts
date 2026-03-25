@@ -1,10 +1,15 @@
+/**
+ * tray.ts — Ícone na bandeja do sistema (System Tray)
+ *
+ * O tray é o ícone ao lado do relógio no Windows/Linux ou na barra de menus no macOS.
+ * Permite acesso rápido ao app sem abrir a janela.
+ */
+
 import { Tray, Menu, BrowserWindow, nativeImage } from 'electron'
-import { join } from 'path'
 
 let tray: Tray | null = null
 
 export function createTray(mainWindow: BrowserWindow): void {
-  // Cria um ícone simples programaticamente (16x16 pixel)
   const icon = nativeImage.createEmpty()
 
   tray = new Tray(icon)
