@@ -1,118 +1,131 @@
-# Lição 09 — Debug
+# Lição 10 — Testes
 
-> Nesta lição aprendemos a debugar um app Electron: logs estruturados, DevTools, sourcemaps e captura de erros.
+> Nesta lição adicionamos testes unitários com Vitest e testes E2E com Playwright.
 
-## O que mudou desde a lição 08
+## O que mudou desde a lição 09
 
 ```bash
-git diff lesson-08..lesson-09 --stat
+git diff lesson-09..lesson-10 --stat
 ```
 
 Arquivos novos:
-- `src/main/logger.ts` — Sistema de logging com níveis e arquivo
+- `vitest.config.ts` — Configuração do Vitest
+- `playwright.config.ts` — Configuração do Playwright
+- `tests/unit/validation.test.ts` — Testes da validação
+- `tests/e2e/app.spec.ts` — Testes E2E do app
 
 Arquivos modificados:
-- `src/main/index.ts` — Logs em todo lugar, DevTools automático, captura de erros
+- `package.json` — Adicionou vitest, playwright e scripts de teste
 
-## O desafio de debugar no Electron
+## Dois tipos de teste
 
-No web, você abre o DevTools e tudo está lá. No Electron, existem **dois processos separados** para debugar:
+### Testes unitários (Vitest)
 
-- **Renderer** — DevTools normal (Ctrl+Shift+I)
-- **Main process** — Não tem DevTools. Precisa de outra abordagem.
-
-## O sistema de logging
-
-Criamos `src/main/logger.ts` com:
-
-- **4 níveis**: debug, info, warn, error
-- **Saída dupla**: console + arquivo
-- **Contexto**: cada log tem um contexto (ex: `ipc`, `app`, `security`)
-- **Timestamp**: ISO 8601 em cada linha
-
-Os logs ficam em `{userData}/logs/YYYY-MM-DD.log`. Para encontrar esse caminho:
-
-```ts
-app.getPath('userData')
-// Windows: %APPDATA%/electron-notas
-// macOS: ~/Library/Application Support/electron-notas
-// Linux: ~/.config/electron-notas
-```
-
-## DevTools automático
-
-Em dev, o DevTools abre automaticamente no lado direito. Em produção, é desabilitado:
-
-```ts
-devTools: is.dev
-```
-
-## Captura de erros
-
-Dois handlers globais capturam erros no main process:
-
-- `process.on('uncaughtException')` — Erros síncronos não tratados
-- `process.on('unhandledRejection')` — Promises rejeitadas sem catch
-
-Além disso, escutamos eventos do renderer:
-
-- `render-process-gone` — Renderer crashou
-- `console-message` — Console.warn e console.error do renderer aparecem nos logs do main
-
-## Como debugar cada parte
-
-### Renderer (React)
-
-1. Abra o DevTools (Ctrl+Shift+I ou automático em dev)
-2. Aba Console: erros do React, logs do `console.log`
-3. Aba Sources: breakpoints no código TypeScript (sourcemaps)
-4. Aba Network: chamadas IPC aparecem como mensagens
-
-### Main process
-
-1. Logs no terminal onde você rodou `npm run dev`
-2. Arquivo de log em `{userData}/logs/`
-3. Para breakpoints: rode com `--inspect`:
+Testam funções isoladas, sem precisar do Electron rodando. Rápidos de executar.
 
 ```bash
-# No package.json, adicione temporariamente:
-"dev:debug": "electron-vite dev -- --inspect=5858"
+npm test           # Roda uma vez
+npm run test:watch # Roda em modo watch (re-executa ao salvar)
 ```
 
-Depois abra `chrome://inspect` no Chrome e conecte.
+### Testes E2E (Playwright)
 
-### IPC
+Abrem o app real e interagem com ele como um usuário faria. Mais lentos, mas testam o fluxo completo.
 
-Problemas comuns e como diagnosticar:
+```bash
+npm run build      # Precisa buildar antes
+npm run test:e2e   # Roda os testes E2E
+```
 
-- **Canal errado**: O log mostra "chamado" mas não "respondido" → Verifique o nome do canal
-- **Dados errados**: O log mostra os dados enviados → Compare com o esperado
-- **Sem resposta**: O handler não está registrado → Verifique `registerIpcHandlers()`
+## O que testamos
+
+### Unitários: `tests/unit/validation.test.ts`
+
+Testa as funções de validação criadas na lição 08:
+
+- `validateNoteInput` — Valida tipos, strings vazias, limites de tamanho
+- `validateId` — Valida UUID, caracteres especiais, SQL injection
+- `sanitizeString` — Remove caracteres de controle, mantém acentos/emojis
+
+### E2E: `tests/e2e/app.spec.ts`
+
+Testa o app rodando:
+
+- A janela abre com o título correto
+- A sidebar mostra "Notas"
+- Clicar em "+ Nova" cria uma nota
+
+## Por que Vitest?
+
+Vitest usa a mesma configuração do Vite, então funciona sem configuração extra. Suporta TypeScript nativamente e tem API compatível com Jest.
+
+## Por que Playwright?
+
+Playwright tem suporte nativo a Electron via `_electron`. Ele:
+
+1. Inicia o app como um usuário faria
+2. Encontra a janela automaticamente
+3. Permite interagir com elementos (clicar, digitar, esperar)
+4. Pode acessar APIs do Electron durante o teste
+
+## Anatomia de um teste unitário
+
+```ts
+describe('validateId', () => {
+  it('aceita UUID v4', () => {
+    expect(validateId('550e8400-e29b-41d4-a716-446655440000')).toBe(true)
+  })
+
+  it('rejeita SQL injection', () => {
+    expect(validateId('id; DROP TABLE notes')).toBe(false)
+  })
+})
+```
+
+- `describe` — Agrupa testes relacionados
+- `it` — Um caso de teste específico
+- `expect` — Asserção do resultado esperado
+
+## Anatomia de um teste E2E
+
+```ts
+test('a janela abre com o título correto', async () => {
+  const electronApp = await electron.launch({
+    args: [join(__dirname, '../../out/main/index.js')]
+  })
+  const window = await electronApp.firstWindow()
+  const title = await window.title()
+  expect(title).toBe('Electron Notas')
+  await electronApp.close()
+})
+```
+
+O padrão: abre o app, faz algo, verifica o resultado, fecha.
 
 ## Teste seu entendimento
 
-1. Por que não usamos só `console.log` para tudo?
-2. Como você debugaria um problema que só acontece em produção?
-3. Por que desabilitamos DevTools em produção?
+1. Por que testes unitários não precisam do Electron rodando?
+2. Por que o teste E2E precisa do `npm run build` antes?
+3. Quando usar unit vs E2E?
 
 <details>
 <summary>Ver respostas</summary>
 
-1. `console.log` no main process vai para o terminal, mas se perde quando o terminal fecha. O logger salva em arquivo, tem níveis (filtrar debug em prod) e contexto (saber de onde veio).
-2. Pelos arquivos de log! O logger salva em `{userData}/logs/`. Também podemos adicionar error reporting (Sentry, etc) no futuro.
-3. Para impedir que usuários acessem o console e executem código JavaScript diretamente, o que seria um risco de segurança.
+1. Porque testam funções puras de JavaScript que não dependem do Electron. `validateId` é só lógica de string.
+2. Porque o Playwright abre o app compilado (`out/main/index.js`), não o código TypeScript. Precisa dos arquivos buildados.
+3. Unit para lógica pura (validação, formatação, cálculos). E2E para fluxos completos (criar nota, exportar, navegar).
 
 </details>
 
 ## Desafio
 
-Adicione um comando "Ver Logs" no menu Ajuda que abre a pasta de logs no gerenciador de arquivos do sistema (use `shell.openPath`).
+Adicione um teste unitário para a função `getAllNotes` do `src/main/notes.ts`. Você vai precisar mockar o `getDatabase` para retornar um banco em memória.
 
 ## Próxima lição
 
 ```bash
-git checkout lesson-10
+git checkout lesson-11
 npm install
 ```
 
-Na lição 10, vamos adicionar testes automatizados.
+Na lição 11, vamos gerar instaladores para Windows, macOS e Linux.
