@@ -37,7 +37,8 @@ app.whenReady().then(() => {
     optimizer.watchWindowShortcuts(window)
   })
 
-  ipcMain.on('ping', () => console.log('pong'))
+  // Handler IPC: responde ao ping com pong
+  ipcMain.handle('ping', () => 'pong')
 
   createWindow()
 
