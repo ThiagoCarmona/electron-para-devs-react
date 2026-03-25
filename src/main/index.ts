@@ -1,3 +1,12 @@
+// ============================================================
+// src/main/index.ts — Main process
+//
+// MUDANÇA NESTA LIÇÃO:
+// - Trocamos ipcMain.on('ping') por ipcMain.handle('ping')
+// - 'on/send' = fire and forget (mão única)
+// - 'handle/invoke' = request/response (ida e volta, retorna Promise)
+// ============================================================
+
 import { app, shell, BrowserWindow, ipcMain } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
@@ -37,7 +46,9 @@ app.whenReady().then(() => {
     optimizer.watchWindowShortcuts(window)
   })
 
-  // Handler IPC: responde ao ping com pong
+  // ANTES: ipcMain.on('ping', () => console.log('pong'))
+  // AGORA: ipcMain.handle('ping', ...) — retorna valor ao renderer
+  // Pense como um endpoint de API: o renderer faz request, aqui responde.
   ipcMain.handle('ping', () => 'pong')
 
   createWindow()

@@ -1,19 +1,29 @@
+// ============================================================
+// App.tsx — Agora usa as funções do preload
+//
+// ANTES (lição 01): só mostrava texto estático.
+// AGORA: chama window.api para buscar dados do main process.
+// ============================================================
+
 import { useState, useEffect } from 'react'
 
 function App(): JSX.Element {
+  // Estado para as versões do sistema
   const [versions, setVersions] = useState({ electron: '', chrome: '', node: '' })
   const [platform, setPlatform] = useState('')
   const [pingResult, setPingResult] = useState('')
 
+  // useEffect roda uma vez ao montar o componente.
+  // Chama funções síncronas do preload (não precisam de await).
   useEffect(() => {
-    // Busca as versões via preload API
     const v = window.api.getVersions()
     setVersions(v)
-
-    // Busca a plataforma
     setPlatform(window.api.getPlatform())
   }, [])
 
+  // Função assíncrona: envia 'ping' ao main process via IPC.
+  // window.api.ping() chama ipcRenderer.invoke('ping')
+  // que chama ipcMain.handle('ping') no main process.
   const handlePing = async (): Promise<void> => {
     const result = await window.api.ping()
     setPingResult(result)
@@ -46,6 +56,12 @@ function App(): JSX.Element {
           </p>
         )}
       </section>
+
+      {/*
+        DESAFIO: Adicione uma nova função ao preload que retorna
+        o diretório home do usuário (os.homedir()).
+        Exponha como api.getHomeDir() e mostre aqui.
+      */}
     </div>
   )
 }
