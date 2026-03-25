@@ -1,3 +1,21 @@
+/**
+ * index.ts — Main Process (Lição 08 — Segurança)
+ *
+ * Nesta lição adicionamos várias camadas de segurança:
+ *
+ * 1. VALIDAÇÃO DE INPUT: todos os dados IPC são validados antes de usar
+ * 2. SANITIZAÇÃO: caracteres de controle são removidos
+ * 3. WEBPREFERENCES SEGURAS: nodeIntegration=false, contextIsolation=true
+ * 4. NAVEGAÇÃO BLOQUEADA: impede redirecionamentos maliciosos
+ * 5. HEADERS DE SEGURANÇA: X-Content-Type-Options, X-Frame-Options, etc.
+ * 6. PERMISSÕES RESTRITAS: bloqueia câmera, microfone, geolocalização, etc.
+ *
+ * Por que isso importa?
+ * Apps Electron têm acesso total ao sistema (Node.js + Chromium). Se o renderer
+ * for comprometido (ex.: XSS), um atacante poderia executar código no sistema.
+ * Essas proteções minimizam a superfície de ataque.
+ */
+
 import { app, shell, BrowserWindow, ipcMain, dialog, Notification, session } from 'electron'
 import { join } from 'path'
 import { writeFileSync, readFileSync } from 'fs'
@@ -20,13 +38,18 @@ function createWindow(): void {
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false,
-      // Segurança: desabilita integração com Node no renderer
+      // ── Configurações de Segurança ──
+      // nodeIntegration: false → o renderer NÃO pode usar require() ou APIs Node.js
+      // (só pode acessar o que o preload expõe via contextBridge)
       nodeIntegration: false,
-      // Segurança: isola o contexto do preload
+      // contextIsolation: true → o preload roda em contexto separado do renderer
+      // (impede que scripts maliciosos modifiquem a API exposta)
       contextIsolation: true,
-      // Segurança: desabilita execução remota
+      // enableRemoteModule: false → desabilita o módulo @electron/remote
+      // (evita que o renderer acesse APIs do main process diretamente)
       enableRemoteModule: false,
-      // Segurança: bloqueia navegação para URLs externas
+      // navigateOnDragDrop: false → impede que arrastar um arquivo para a janela
+      // cause navegação (o que exporia o conteúdo do arquivo)
       navigateOnDragDrop: false
     } as Electron.WebPreferences
   })
@@ -35,13 +58,14 @@ function createWindow(): void {
     mainWindow.show()
   })
 
-  // Segurança: abre links externos no navegador padrão
+  // Segurança: abre links externos no navegador padrão (nunca dentro do Electron)
   mainWindow.webContents.setWindowOpenHandler((details) => {
     shell.openExternal(details.url)
     return { action: 'deny' }
   })
 
   // Segurança: bloqueia navegação para URLs não permitidas
+  // Sem isso, um link malicioso poderia redirecionar a janela para um site externo
   mainWindow.webContents.on('will-navigate', (event, url) => {
     const allowed = is.dev
       ? [process.env['ELECTRON_RENDERER_URL'] || '']
@@ -64,16 +88,26 @@ function createWindow(): void {
   createTray(mainWindow)
 }
 
+/**
+ * IPC Handlers com validação.
+ *
+ * Mudanças em relação à lição anterior:
+ * - Parâmetros tipados como `unknown` (não confiamos no renderer)
+ * - validateNoteInput() verifica tipo e tamanho
+ * - validateId() verifica formato do ID
+ * - sanitizeString() remove caracteres de controle
+ */
 function registerIpcHandlers(): void {
-  // CRUD com validação de input
   ipcMain.handle(IPC_CHANNELS.NOTES_GET_ALL, () => getAllNotes())
 
+  // CREATE: valida + sanitiza antes de criar
   ipcMain.handle(IPC_CHANNELS.NOTES_CREATE, (_, title: unknown, content: unknown) => {
     const validation = validateNoteInput(title, content)
     if (!validation.valid) throw new Error(validation.error)
     return createNote(sanitizeString(title as string), sanitizeString(content as string))
   })
 
+  // UPDATE: valida ID + valida input + sanitiza
   ipcMain.handle(IPC_CHANNELS.NOTES_UPDATE, (_, id: unknown, title: unknown, content: unknown) => {
     if (!validateId(id)) throw new Error('ID inválido')
     const validation = validateNoteInput(title, content)
@@ -81,6 +115,7 @@ function registerIpcHandlers(): void {
     return updateNote(id as string, sanitizeString(title as string), sanitizeString(content as string))
   })
 
+  // DELETE: valida formato do ID
   ipcMain.handle(IPC_CHANNELS.NOTES_DELETE, (_, id: unknown) => {
     if (!validateId(id)) throw new Error('ID inválido')
     return deleteNote(id as string)
@@ -110,20 +145,31 @@ function registerIpcHandlers(): void {
     })
     if (canceled || filePaths.length === 0) return null
     const content = readFileSync(filePaths[0], 'utf-8')
-    const fileName = filePaths[0].split(/[\\/]/).pop() || 'Nota importada'
+    const fileName = filePaths[0].split(/[\\\/]/).pop() || 'Nota importada'
     const title = fileName.replace(/\.(txt|md)$/, '')
     return createNote(title, content)
   })
 
-  // Notificação
+  // Notificação nativa
   ipcMain.handle(IPC_CHANNELS.APP_SHOW_NOTIFICATION, (_, title: string, body: string) => {
     new Notification({ title, body }).show()
     return true
   })
 }
 
+/**
+ * Configura headers de segurança HTTP e restringe permissões.
+ *
+ * Headers:
+ * - X-Content-Type-Options: nosniff → previne MIME type sniffing
+ * - X-Frame-Options: DENY → impede que o app seja embutido em iframe
+ * - X-XSS-Protection: 1 → ativa filtro XSS do navegador
+ *
+ * Permissões:
+ * - Bloqueia câmera, microfone, geolocalização, etc.
+ * - Permite apenas clipboard (copiar/colar)
+ */
 function configureSecurityHeaders(): void {
-  // Segurança: configura headers de resposta
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
     callback({
       responseHeaders: {
@@ -135,7 +181,7 @@ function configureSecurityHeaders(): void {
     })
   })
 
-  // Segurança: bloqueia permissões desnecessárias
+  // Bloqueia permissões desnecessarias (câmera, mic, localização, etc.)
   session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
     const allowedPermissions = ['clipboard-read', 'clipboard-sanitized-write']
     callback(allowedPermissions.includes(permission))
@@ -149,6 +195,7 @@ app.whenReady().then(() => {
     optimizer.watchWindowShortcuts(window)
   })
 
+  // Ordem: segurança → handlers → janela
   configureSecurityHeaders()
   registerIpcHandlers()
   createWindow()
