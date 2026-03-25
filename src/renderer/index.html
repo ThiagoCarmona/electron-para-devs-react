@@ -3,12 +3,21 @@
   <head>
     <meta charset="UTF-8" />
     <title>Electron Notas</title>
+    <!--
+      Content Security Policy (CSP)
+      Define quais recursos a página pode carregar:
+      - default-src 'self': só recursos do próprio app
+      - script-src 'self': só scripts locais (bloqueia scripts externos)
+      - style-src 'self' 'unsafe-inline': estilos locais + inline
+      Veremos mais sobre CSP na lição 08 (Segurança).
+    -->
     <meta
       http-equiv="Content-Security-Policy"
       content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'"
     />
   </head>
   <body>
+    <!-- O React monta aqui, igual a qualquer projeto web -->
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

@@ -1,3 +1,10 @@
+// ============================================================
+// src/renderer/src/main.tsx — Ponto de entrada do React
+//
+// Igual a qualquer projeto React: monta o App no DOM.
+// O index.html tem um <div id="root"> esperando.
+// ============================================================
+
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App'
