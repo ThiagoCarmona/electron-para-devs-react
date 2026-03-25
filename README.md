@@ -1,84 +1,119 @@
-# Lição 06 — APIs Nativas
+# Lição 07 — Zustand + IPC Bridge
 
-> Nesta lição adicionamos menu nativo, diálogos de arquivo, notificações do sistema e tray icon.
+> Nesta lição extraímos toda a lógica de estado do App.tsx para uma store Zustand, criando uma ponte limpa entre o estado do React e o IPC.
 
-## O que mudou desde a lição 05
+## O que mudou desde a lição 06
 
 ```bash
-git diff lesson-05..lesson-06 --stat
+git diff lesson-06..lesson-07 --stat
 ```
 
 Arquivos novos:
-- `src/main/menu.ts` — Menu nativo da aplicação
-- `src/main/tray.ts` — Ícone na bandeja do sistema
+- `src/renderer/src/store/useNoteStore.ts` — Store Zustand
 
 Arquivos modificados:
-- `src/shared/types.ts` — Novos canais IPC
-- `src/main/index.ts` — Diálogos, notificações, menu e tray
-- `src/preload/index.ts` — Novas funções + listeners de menu
-- `src/renderer/src/App.tsx` — Integração com menu e arquivo
+- `package.json` — Adicionou `zustand`
+- `src/renderer/src/App.tsx` — Simplificado, usa a store
 
-## Menu nativo
+## Por que Zustand?
 
-O `src/main/menu.ts` cria um menu com atalhos de teclado:
+O `App.tsx` estava ficando grande: estado, lógica de CRUD, integração com IPC, handlers de menu... Tudo junto. O Zustand resolve isso separando **estado + lógica** dos **componentes**.
 
-- **Ctrl+N** — Nova nota
-- **Ctrl+Shift+E** — Exportar nota
-- **Ctrl+Shift+I** — Importar nota
+Por que Zustand e não Context API, Redux ou Jotai?
 
-O menu envia eventos ao renderer via `webContents.send()`. O renderer escuta esses eventos com `ipcRenderer.on()` no preload.
+- **Menos boilerplate que Redux** — Sem actions, reducers, dispatch
+- **Sem Provider** — Não precisa envolver a árvore em providers
+- **Seletores nativos** — Componentes só re-renderizam quando o dado que usam muda
+- **Simples** — Uma função `create` e pronto
 
-Isso é comunicação **main → renderer** (o inverso do que fizemos até agora).
+## A store
 
-## Diálogos de arquivo
+O `useNoteStore` contém:
 
-`dialog.showSaveDialog` e `dialog.showOpenDialog` são APIs nativas do Electron que abrem os diálogos padrão do sistema operacional. Eles:
+**Estado:**
+- `notes` — Lista de notas
+- `selectedNote` — Nota atualmente selecionada
+- `loading` — Flag de carregamento
 
-- São assíncronos (retornam Promise)
-- Aceitam filtros de extensão
-- Retornam o caminho escolhido ou `canceled: true`
+**Ações:**
+- `loadNotes()` — Carrega do main process
+- `selectNote(note)` — Seleciona uma nota
+- `createNote()` — Cria via IPC e adiciona ao estado
+- `updateNote(id, title, content)` — Atualiza via IPC e no estado
+- `deleteNote(id)` — Remove via IPC e do estado
+- `importNote()` / `exportNote()` — Operações de arquivo
 
-## Notificações
+Cada ação chama o IPC e atualiza o estado local. O estado é a "cópia local" dos dados do main process.
 
-A classe `Notification` do Electron cria notificações nativas do SO. No Windows aparecem no Action Center, no macOS no Notification Center.
+## O App.tsx agora
 
-## Tray
+Compare o antes e o depois:
 
-O `src/main/tray.ts` cria um ícone na bandeja do sistema com menu de contexto. Clicar no ícone mostra/esconde a janela.
+**Antes (lesson-06):** ~80 linhas com useState, useCallback, lógica de CRUD inline.
 
-## Comunicação bidirecional
+**Depois (lesson-07):** ~50 linhas. Desestrutura a store e passa funções aos componentes. Sem lógica de negócio.
 
-Até agora tínhamos só renderer → main (invoke/handle). Agora também temos main → renderer:
+## O padrão IPC Bridge
+
+O fluxo agora é:
 
 ```
-Renderer → Main:  ipcRenderer.invoke / ipcMain.handle  (request/response)
-Main → Renderer:  webContents.send / ipcRenderer.on    (push/event)
+Componente React
+    │
+    │  chama store.createNote()
+    ↓
+  Zustand Store
+    │
+    │  chama window.api.createNote()
+    ↓
+  Preload (ponte)
+    │
+    │  chama ipcRenderer.invoke('notes:create')
+    ↓
+  Main Process
+    │
+    │  insere no SQLite
+    ↓
+  Retorna a nota criada
+    │
+    ↓
+  Store atualiza o estado
+    │
+    ↓
+  React re-renderiza
 ```
+
+Cada camada tem uma responsabilidade clara.
 
 ## Teste seu entendimento
 
-1. Por que usamos `webContents.send` do menu em vez de `ipcMain.handle`?
-2. Por que o diálogo de arquivo roda no main process e não no renderer?
-3. Qual a diferença entre `dialog.showSaveDialog` e `dialog.showSaveDialogSync`?
+1. Por que a store chama `window.api` diretamente em vez de `ipcRenderer`?
+2. O que acontece se o IPC falhar (ex: banco corrompido)? A store lida com isso?
+3. Por que não usamos Context API em vez de Zustand?
 
 <details>
 <summary>Ver respostas</summary>
 
-1. Porque o menu é quem inicia a ação (main → renderer), não o renderer. `handle` espera o renderer chamar; `send` envia proativamente.
-2. Porque diálogos de arquivo são APIs do sistema operacional, acessíveis apenas no main process via Node.js.
-3. A versão síncrona bloqueia o main process até o usuário fechar o diálogo. A versão assíncrona não bloqueia — preferimos ela.
+1. Porque a store roda no renderer, que não tem acesso ao `ipcRenderer` diretamente. Só o que o preload expõe em `window.api` está disponível.
+2. Não lida bem — as Promises vão dar erro silencioso. Na lição 09 (Debug) vamos adicionar tratamento de erros adequado.
+3. Context API causaria re-render de toda a árvore a cada mudança de estado. Zustand permite seletores granulares — só o componente que usa `selectedNote` re-renderiza quando ela muda.
 
 </details>
 
 ## Desafio
 
-Adicione um item "Exportar Todas" no menu que exporta todas as notas em um único arquivo Markdown, com cada nota separada por `---`.
+Adicione um seletor `useNoteCount` que retorna a quantidade de notas. Use-o na sidebar para mostrar "Notas (3)" em vez de só "Notas".
+
+Dica:
+```ts
+const noteCount = useNoteStore((state) => state.notes.length)
+```
 
 ## Próxima lição
 
 ```bash
-git checkout lesson-07
+git checkout lesson-08
 npm install
 ```
 
-Na lição 07, vamos adicionar Zustand para gerenciamento de estado no renderer.
+Na lição 08, vamos endurecer a segurança do app.
