@@ -1,119 +1,107 @@
-# Lição 07 — Zustand + IPC Bridge
+# Lição 08 — Segurança
 
-> Nesta lição extraímos toda a lógica de estado do App.tsx para uma store Zustand, criando uma ponte limpa entre o estado do React e o IPC.
+> Nesta lição endurecemos a segurança do app: validação de inputs, CSP, bloqueio de navegação e permissões.
 
-## O que mudou desde a lição 06
+## O que mudou desde a lição 07
 
 ```bash
-git diff lesson-06..lesson-07 --stat
+git diff lesson-07..lesson-08 --stat
 ```
 
 Arquivos novos:
-- `src/renderer/src/store/useNoteStore.ts` — Store Zustand
+- `src/main/validation.ts` — Validação e sanitização de inputs
 
 Arquivos modificados:
-- `package.json` — Adicionou `zustand`
-- `src/renderer/src/App.tsx` — Simplificado, usa a store
+- `src/main/index.ts` — Configurações de segurança, validação nos handlers
+- `src/renderer/index.html` — CSP mais restritiva
 
-## Por que Zustand?
+## Por que segurança em app desktop?
 
-O `App.tsx` estava ficando grande: estado, lógica de CRUD, integração com IPC, handlers de menu... Tudo junto. O Zustand resolve isso separando **estado + lógica** dos **componentes**.
+Você pode pensar: "Meu app é local, não é um site. Quem vai atacar?" Existem riscos reais:
 
-Por que Zustand e não Context API, Redux ou Jotai?
+1. Se o app importa arquivos, um arquivo malicioso pode tentar injetar código
+2. Se o app abre URLs, links maliciosos podem redirecionar o renderer
+3. Se o renderer tiver acesso ao Node.js, um XSS dá controle total do computador
+4. Updates automáticos podem ser interceptados (man-in-the-middle)
 
-- **Menos boilerplate que Redux** — Sem actions, reducers, dispatch
-- **Sem Provider** — Não precisa envolver a árvore em providers
-- **Seletores nativos** — Componentes só re-renderizam quando o dado que usam muda
-- **Simples** — Uma função `create` e pronto
+## O que fizemos
 
-## A store
+### 1. Validação de input no main process
 
-O `useNoteStore` contém:
+Criamos `src/main/validation.ts` com três funções:
 
-**Estado:**
-- `notes` — Lista de notas
-- `selectedNote` — Nota atualmente selecionada
-- `loading` — Flag de carregamento
+- `validateNoteInput(title, content)` — Verifica tipos e tamanhos
+- `validateId(id)` — Verifica formato do ID
+- `sanitizeString(input)` — Remove caracteres de controle
 
-**Ações:**
-- `loadNotes()` — Carrega do main process
-- `selectNote(note)` — Seleciona uma nota
-- `createNote()` — Cria via IPC e adiciona ao estado
-- `updateNote(id, title, content)` — Atualiza via IPC e no estado
-- `deleteNote(id)` — Remove via IPC e do estado
-- `importNote()` / `exportNote()` — Operações de arquivo
+A regra: **nunca confie nos dados do renderer**. Mesmo que o preload pareça seguro, valide tudo no main process.
 
-Cada ação chama o IPC e atualiza o estado local. O estado é a "cópia local" dos dados do main process.
+### 2. CSP (Content Security Policy) mais restritiva
 
-## O App.tsx agora
+No `index.html`, a CSP agora bloqueia:
+- Scripts de fontes externas (`script-src 'self'`)
+- Conteúdo embutido malicioso (sem `unsafe-eval`)
+- Imagens de fontes externas (`img-src 'self' data:`)
 
-Compare o antes e o depois:
+### 3. Configurações do BrowserWindow
 
-**Antes (lesson-06):** ~80 linhas com useState, useCallback, lógica de CRUD inline.
-
-**Depois (lesson-07):** ~50 linhas. Desestrutura a store e passa funções aos componentes. Sem lógica de negócio.
-
-## O padrão IPC Bridge
-
-O fluxo agora é:
-
-```
-Componente React
-    │
-    │  chama store.createNote()
-    ↓
-  Zustand Store
-    │
-    │  chama window.api.createNote()
-    ↓
-  Preload (ponte)
-    │
-    │  chama ipcRenderer.invoke('notes:create')
-    ↓
-  Main Process
-    │
-    │  insere no SQLite
-    ↓
-  Retorna a nota criada
-    │
-    ↓
-  Store atualiza o estado
-    │
-    ↓
-  React re-renderiza
+```ts
+nodeIntegration: false     // Renderer não acessa Node.js
+contextIsolation: true     // Preload é isolado do renderer
+enableRemoteModule: false  // Módulo remote desabilitado
+navigateOnDragDrop: false  // Arrastar arquivo não navega
 ```
 
-Cada camada tem uma responsabilidade clara.
+### 4. Bloqueio de navegação
+
+O evento `will-navigate` impede que o renderer navegue para URLs não permitidas. Isso previne ataques onde um link malicioso redireciona a janela.
+
+### 5. Headers de segurança
+
+Adicionamos headers HTTP via `session.webRequest.onHeadersReceived`:
+- `X-Content-Type-Options: nosniff`
+- `X-Frame-Options: DENY`
+- `X-XSS-Protection: 1; mode=block`
+
+### 6. Bloqueio de permissões
+
+`setPermissionRequestHandler` bloqueia pedidos de permissão (câmera, microfone, geolocalização) que o app não precisa.
+
+## Checklist de segurança para Electron
+
+- [x] `nodeIntegration: false`
+- [x] `contextIsolation: true`
+- [x] CSP definida
+- [x] Navegação bloqueada
+- [x] Inputs validados no main
+- [x] Permissões restringidas
+- [x] Links externos abrem no navegador
+- [ ] HTTPS para updates (lição 11)
 
 ## Teste seu entendimento
 
-1. Por que a store chama `window.api` diretamente em vez de `ipcRenderer`?
-2. O que acontece se o IPC falhar (ex: banco corrompido)? A store lida com isso?
-3. Por que não usamos Context API em vez de Zustand?
+1. Por que validamos no main process se o preload já garante os tipos?
+2. O que é CSP e por que é importante no Electron?
+3. Por que `nodeIntegration: false` é a configuração padrão?
 
 <details>
 <summary>Ver respostas</summary>
 
-1. Porque a store roda no renderer, que não tem acesso ao `ipcRenderer` diretamente. Só o que o preload expõe em `window.api` está disponível.
-2. Não lida bem — as Promises vão dar erro silencioso. Na lição 09 (Debug) vamos adicionar tratamento de erros adequado.
-3. Context API causaria re-render de toda a árvore a cada mudança de estado. Zustand permite seletores granulares — só o componente que usa `selectedNote` re-renderiza quando ela muda.
+1. Porque o preload é parte do renderer. Se um atacante conseguir executar código no renderer (XSS), ele pode chamar `window.api` com qualquer input. O main process é a última linha de defesa.
+2. CSP define quais recursos podem ser carregados. Sem ela, um XSS poderia carregar scripts externos. No Electron isso é crítico porque scripts têm potencial acesso ao sistema.
+3. Porque se `nodeIntegration` fosse `true`, qualquer código no renderer teria acesso a `require('child_process')`, `require('fs')`, etc. Um XSS simples daria controle total do computador.
 
 </details>
 
 ## Desafio
 
-Adicione um seletor `useNoteCount` que retorna a quantidade de notas. Use-o na sidebar para mostrar "Notas (3)" em vez de só "Notas".
-
-Dica:
-```ts
-const noteCount = useNoteStore((state) => state.notes.length)
-```
+Adicione rate limiting ao handler `notes:create` para impedir que um script malicioso crie milhares de notas por segundo. Limite a 10 criações por minuto.
 
 ## Próxima lição
 
 ```bash
-git checkout lesson-08
+git checkout lesson-09
 npm install
 ```
 
-Na lição 08, vamos endurecer a segurança do app.
+Na lição 09, vamos aprender a debugar o app — main process, renderer e IPC.
