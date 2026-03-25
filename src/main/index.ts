@@ -3,6 +3,7 @@ import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { IPC_CHANNELS } from '../shared/types'
 import { getAllNotes, createNote, updateNote, deleteNote } from './notes'
+import { closeDatabase } from './database'
 
 function createWindow(): void {
   const mainWindow = new BrowserWindow({
@@ -32,7 +33,6 @@ function createWindow(): void {
   }
 }
 
-// Registra os handlers IPC para o CRUD de notas
 function registerIpcHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.NOTES_GET_ALL, () => {
     return getAllNotes()
@@ -70,4 +70,9 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit()
   }
+})
+
+// Fecha o banco ao sair
+app.on('before-quit', () => {
+  closeDatabase()
 })

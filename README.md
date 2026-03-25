@@ -1,109 +1,77 @@
-# Lição 04 — IPC na Prática
+# Lição 05 — Persistência com SQLite
 
-> Nesta lição movemos os dados das notas para o main process e criamos um CRUD completo via IPC.
+> Nesta lição trocamos o array em memória por um banco de dados SQLite real. As notas agora sobrevivem ao fechar o app.
 
-## O que mudou desde a lição 03
+## O que mudou desde a lição 04
 
 ```bash
-git diff lesson-03..lesson-04 --stat
+git diff lesson-04..lesson-05 --stat
 ```
 
 Arquivos novos:
-- `src/shared/types.ts` — Tipos e constantes de canais IPC compartilhados
-- `src/main/notes.ts` — Lógica de CRUD no main process
+- `src/main/database.ts` — Configuração e inicialização do SQLite
 
 Arquivos modificados:
-- `src/main/index.ts` — Registra handlers IPC
-- `src/preload/index.ts` — Expõe funções de CRUD ao renderer
-- `src/preload/index.d.ts` — Tipos atualizados
-- `src/renderer/src/App.tsx` — Usa IPC em vez de estado local
-- `src/renderer/src/types.ts` — Re-exporta tipos compartilhados
+- `package.json` — Adicionou `better-sqlite3` e `@types/better-sqlite3`
+- `src/main/notes.ts` — Agora usa SQL em vez de array
+- `src/main/index.ts` — Fecha o banco ao sair
 
-## A grande mudança
+## Por que better-sqlite3?
 
-Na lição 03, as notas viviam no `useState` do React. Se você fechasse o app, perdia tudo. Agora, as notas vivem no **main process**. O React pede dados via IPC e recebe respostas.
+Existem várias opções para persistência local: JSON files, electron-store, SQLite, IndexedDB. Escolhemos `better-sqlite3` porque:
 
-O fluxo fica assim:
+1. **Síncrono** — Não precisa de callbacks ou Promises. Roda no main process sem complicar o código.
+2. **Rápido** — É a lib SQLite mais rápida do Node.js.
+3. **Confiável** — SQLite é o banco de dados mais usado do mundo. Seu celular usa, seu navegador usa.
+4. **Bom para Electron** — Funciona bem com electron-builder para empacotar.
 
-```
-React (renderer)  --->  preload (api.getNotes)  --->  ipcRenderer.invoke
-       ↑                                                      │
-       │                                                      ↓
-       └─────────────  retorna Promise  <─────  ipcMain.handle
-                                                        (main process)
-```
+## `src/main/database.ts` — O banco
 
-## `src/shared/types.ts` — Código compartilhado
+Este arquivo cria e configura o banco de dados:
 
-Criamos uma pasta `shared/` para código que o main, o preload e o renderer usam. Isso evita duplicar a interface `Note` e garante que os canais IPC sejam consistentes.
+- **Onde o banco fica**: `app.getPath('userData')` retorna a pasta de dados do app no sistema do usuário (ex: `%APPDATA%` no Windows, `~/Library/Application Support` no macOS).
+- **WAL mode**: `journal_mode = WAL` melhora a performance de escrita.
+- **Tabela notes**: Criada automaticamente na primeira execução com `CREATE TABLE IF NOT EXISTS`.
 
-As constantes `IPC_CHANNELS` evitam erros de digitação nos nomes dos canais. Se você errar o nome, o TypeScript avisa.
+## `src/main/notes.ts` — SQL no lugar do array
 
-## `src/main/notes.ts` — O "backend"
+As funções têm a mesma assinatura de antes, mas agora usam SQL:
 
-Este arquivo contém a lógica de dados. Por enquanto usa um array em memória, mas a interface é a mesma que vamos usar com SQLite na lição 05.
+- `getAllNotes()` → `SELECT * FROM notes ORDER BY updated_at DESC`
+- `createNote()` → `INSERT INTO notes ...`
+- `updateNote()` → `UPDATE notes SET ... WHERE id = ?`
+- `deleteNote()` → `DELETE FROM notes WHERE id = ?`
 
-Funções:
-- `getAllNotes()` — Retorna todas as notas ordenadas por data
-- `createNote(title, content)` — Cria uma nova nota com UUID
-- `updateNote(id, title, content)` — Atualiza uma nota existente
-- `deleteNote(id)` — Remove uma nota
+Note que usamos `?` para parâmetros (prepared statements). Isso previne SQL injection.
 
-## `ipcMain.handle` — Os endpoints
+## O que não mudou
 
-No `src/main/index.ts`, registramos quatro handlers:
-
-```ts
-ipcMain.handle('notes:getAll', () => getAllNotes())
-ipcMain.handle('notes:create', (_, title, content) => createNote(title, content))
-ipcMain.handle('notes:update', (_, id, title, content) => updateNote(id, title, content))
-ipcMain.handle('notes:delete', (_, id) => deleteNote(id))
-```
-
-Pense neles como rotas de uma API REST, mas sem HTTP. O primeiro parâmetro `_` é o evento do IPC (que ignoramos aqui).
-
-## O preload como contrato
-
-O preload define o contrato entre main e renderer:
-
-```ts
-const api = {
-  getNotes: () => ipcRenderer.invoke('notes:getAll'),
-  createNote: (title, content) => ipcRenderer.invoke('notes:create', title, content),
-  // ...
-}
-```
-
-O renderer não sabe que existe `ipcRenderer`. Ele só vê `window.api.getNotes()` — uma função assíncrona que retorna notas.
-
-## O React agora é assíncrono
-
-A principal mudança no `App.tsx`: todas as operações agora são `async/await`, e o `useEffect` carrega as notas ao iniciar.
+O preload e o renderer não sabem que agora usamos SQLite. A API é a mesma: `window.api.getNotes()`, `window.api.createNote()`, etc. Essa é a vantagem de ter o preload como contrato — podemos trocar a implementação no backend sem mudar o frontend.
 
 ## Teste seu entendimento
 
-1. Por que `ipcMain.handle` em vez de `ipcMain.on`?
-2. O que acontece se o renderer chamar um canal IPC que não existe no main?
-3. Por que colocamos os tipos em `shared/` em vez de definir em cada processo?
+1. Por que não usamos SQLite diretamente no renderer?
+2. O que é WAL mode e por que ativamos?
+3. O que acontece se dois processos tentarem escrever no banco ao mesmo tempo?
 
 <details>
 <summary>Ver respostas</summary>
 
-1. Porque `handle`/`invoke` retorna uma Promise. O renderer pode `await` a resposta. `on`/`send` é fire-and-forget.
-2. A Promise retorna `undefined`. Não dá erro, mas também não faz nada — um bug silencioso. Por isso usamos constantes para os canais.
-3. Para garantir que main, preload e renderer usem os mesmos tipos. Se mudarmos a interface `Note`, todos os processos são atualizados juntos.
+1. O renderer roda em ambiente de navegador e não tem acesso ao filesystem. Além disso, seria inseguro — qualquer código no renderer teria acesso ao banco.
+2. WAL (Write-Ahead Logging) permite leituras e escritas simultâneas. Sem WAL, uma escrita bloqueia todas as leituras.
+3. No nosso caso não é problema porque só o main process acessa o banco. Se tivéssemos múltiplos processos, o SQLite com WAL lida bem com isso.
 
 </details>
 
 ## Desafio
 
-Adicione um handler IPC `notes:search` que recebe um termo de busca e retorna só as notas cujo título ou conteúdo contém esse termo. Exponha como `api.searchNotes(term)` no preload.
+Adicione uma coluna `pinned` (INTEGER, 0 ou 1) à tabela. Notas fixadas devem aparecer primeiro na lista. Atualize o `getAllNotes` para ordenar: fixadas primeiro, depois por data.
 
 ## Próxima lição
 
 ```bash
-git checkout lesson-05
+git checkout lesson-06
 npm install
 ```
 
-Na lição 05, vamos trocar o array em memória por um banco SQLite com better-sqlite3.
+Na lição 06, vamos adicionar menus nativos, diálogos de arquivo, notificações e tray icon.

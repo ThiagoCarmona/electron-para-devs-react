@@ -1,53 +1,51 @@
 import { Note } from '../shared/types'
+import { getDatabase } from './database'
 import { randomUUID } from 'crypto'
 
-// Armazenamento em memória (na lição 05 vamos trocar por SQLite)
-let notes: Note[] = [
-  {
-    id: randomUUID(),
-    title: 'Bem-vindo ao Electron Notas',
-    content:
-      'Este é o seu app de notas desktop.\n\nAs notas agora vivem no main process e são acessadas via IPC.',
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
+// Converte row do SQLite para o tipo Note
+function rowToNote(row: Record<string, string>): Note {
+  return {
+    id: row.id,
+    title: row.title,
+    content: row.content,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
   }
-]
+}
 
 export function getAllNotes(): Note[] {
-  return [...notes].sort(
-    (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
-  )
+  const db = getDatabase()
+  const rows = db.prepare('SELECT * FROM notes ORDER BY updated_at DESC').all() as Record<string, string>[]
+  return rows.map(rowToNote)
 }
 
 export function createNote(title: string, content: string): Note {
-  const note: Note = {
-    id: randomUUID(),
-    title,
-    content,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
-  }
-  notes.push(note)
-  return note
+  const db = getDatabase()
+  const id = randomUUID()
+  const now = new Date().toISOString()
+
+  db.prepare(
+    'INSERT INTO notes (id, title, content, created_at, updated_at) VALUES (?, ?, ?, ?, ?)'
+  ).run(id, title, content, now, now)
+
+  return { id, title, content, createdAt: now, updatedAt: now }
 }
 
 export function updateNote(id: string, title: string, content: string): Note | null {
-  const index = notes.findIndex((n) => n.id === id)
-  if (index === -1) return null
+  const db = getDatabase()
+  const now = new Date().toISOString()
 
-  notes[index] = {
-    ...notes[index],
-    title,
-    content,
-    updatedAt: new Date().toISOString()
-  }
-  return notes[index]
+  const result = db
+    .prepare('UPDATE notes SET title = ?, content = ?, updated_at = ? WHERE id = ?')
+    .run(title, content, now, id)
+
+  if (result.changes === 0) return null
+
+  return { id, title, content, createdAt: '', updatedAt: now }
 }
 
 export function deleteNote(id: string): boolean {
-  const index = notes.findIndex((n) => n.id === id)
-  if (index === -1) return false
-
-  notes.splice(index, 1)
-  return true
+  const db = getDatabase()
+  const result = db.prepare('DELETE FROM notes WHERE id = ?').run(id)
+  return result.changes > 0
 }
