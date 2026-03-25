@@ -1,10 +1,15 @@
+/**
+ * preload/index.ts — Ponte entre Main e Renderer (Context Bridge)
+ *
+ * Cada função on*() RETORNA uma função de cleanup que remove o listener.
+ */
+
 import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 import { IPC_CHANNELS } from '../shared/types'
 import type { Note } from '../shared/types'
 
 const api = {
-  // CRUD de notas
   getNotes: (): Promise<Note[]> => ipcRenderer.invoke(IPC_CHANNELS.NOTES_GET_ALL),
   createNote: (title: string, content: string): Promise<Note> =>
     ipcRenderer.invoke(IPC_CHANNELS.NOTES_CREATE, title, content),
@@ -13,28 +18,27 @@ const api = {
   deleteNote: (id: string): Promise<boolean> =>
     ipcRenderer.invoke(IPC_CHANNELS.NOTES_DELETE, id),
 
-  // Arquivo
   exportNote: (title: string, content: string): Promise<boolean> =>
     ipcRenderer.invoke(IPC_CHANNELS.NOTES_EXPORT, title, content),
   importNote: (): Promise<Note | null> =>
     ipcRenderer.invoke(IPC_CHANNELS.NOTES_IMPORT),
 
-  // Notificação
   showNotification: (title: string, body: string): Promise<boolean> =>
     ipcRenderer.invoke(IPC_CHANNELS.APP_SHOW_NOTIFICATION, title, body),
 
-  // Escuta eventos do menu nativo
-  onMenuNewNote: (callback: () => void): void => {
+  onMenuNewNote: (callback: () => void): (() => void) => {
     ipcRenderer.on('menu:newNote', callback)
+    return (): void => { ipcRenderer.removeListener('menu:newNote', callback) }
   },
-  onMenuExportNote: (callback: () => void): void => {
+  onMenuExportNote: (callback: () => void): (() => void) => {
     ipcRenderer.on('menu:exportNote', callback)
+    return (): void => { ipcRenderer.removeListener('menu:exportNote', callback) }
   },
-  onMenuImportNote: (callback: () => void): void => {
+  onMenuImportNote: (callback: () => void): (() => void) => {
     ipcRenderer.on('menu:importNote', callback)
+    return (): void => { ipcRenderer.removeListener('menu:importNote', callback) }
   },
 
-  // Utilitários
   getVersions: (): { electron: string; chrome: string; node: string } => ({
     electron: process.versions.electron,
     chrome: process.versions.chrome,

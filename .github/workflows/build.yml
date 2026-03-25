@@ -1,5 +1,27 @@
+# build.yml — CI/CD com GitHub Actions
+#
+# Este workflow automatiza o build e distribuição do app Electron.
+#
+# Quando é executado?
+# Ao criar uma tag começando com "v" (ex.: git tag v1.0.0 && git push --tags)
+#
+# O que faz?
+# 1. Roda em 3 SOs em paralelo (matrix strategy): Linux, Windows, macOS
+# 2. Instala dependências (npm ci = install limpo, ideal para CI)
+# 3. Roda os testes unitários
+# 4. Compila o app com electron-vite
+# 5. Gera o instalador específico de cada SO
+# 6. Faz upload dos artefatos (instaladores) como artifacts do workflow
+#
+# Para usar:
+# 1. git tag v1.0.0
+# 2. git push --tags
+# 3. O workflow roda automaticamente e os instaladores ficam em:
+#    GitHub → Actions → workflow run → Artifacts
+
 name: Build
 
+# Trigger: roda quando uma tag v* é criada (ex.: v1.0.0, v2.3.1)
 on:
   push:
     tags:
@@ -7,6 +29,8 @@ on:
 
 jobs:
   build:
+    # Matrix strategy: roda o mesmo job em múltiplos SOs em paralelo
+    # Isso garante que o app funciona em todas as plataformas
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
@@ -14,26 +38,34 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
+      # 1. Checkout: baixa o código do repositório
       - name: Checkout
         uses: actions/checkout@v4
 
+      # 2. Setup Node.js com cache do npm (acelera instalações subsequentes)
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
 
+      # 3. Install: npm ci é preferível em CI (mais rápido, determinístico)
       - name: Install dependencies
         run: npm ci
 
+      # 4. Testes: roda os testes unitários antes de buildar
       - name: Run tests
         run: npm test
 
+      # 5. Build: compila o app com electron-vite (src/ → out/)
       - name: Build Electron app
         run: npm run build
         env:
+          # GH_TOKEN é necessário para electron-builder baixar dependências
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      # 6-8. Gera instalador específico do SO
+      # Cada step roda apenas no SO correspondente (if: matrix.os == ...)
       - name: Build installer (Linux)
         if: matrix.os == 'ubuntu-latest'
         run: npx electron-builder --linux
@@ -52,6 +84,8 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      # 9. Upload: salva os instaladores como artifacts do workflow
+      # Você pode baixar em: GitHub → Actions → workflow run → Artifacts
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:

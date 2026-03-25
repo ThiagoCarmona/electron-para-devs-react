@@ -1,61 +1,101 @@
+# electron-builder.yml — Configuração do electron-builder
+#
+# electron-builder é a ferramenta que empacota seu app Electron em instaladores
+# nativos para Windows (.exe), macOS (.dmg) e Linux (.AppImage, .deb).
+#
+# Fluxo: código fonte → electron-vite build → out/ → electron-builder → dist/
+#
+# Para buildar localmente:
+#   npm run build              (compila com electron-vite)
+#   npx electron-builder --win (gera instalador Windows)
+#   npx electron-builder --mac (gera instalador macOS)
+#   npx electron-builder --linux (gera instalador Linux)
+
+# Identificação do app (formato reverse-domain)
 appId: com.electron.notas
 productName: Electron Notas
+
+# Diretórios:
+# - buildResources: ícones, certificados, etc.
+# - output: onde os instaladores serão gerados
 directories:
   buildResources: build
   output: dist
+
+# Arquivos a EXCLUIR do pacote final (o ! no início significa "ignore")
+# Isso reduz o tamanho do instalador significativamente
 files:
   - '!**/.vscode/*'
-  - '!src/*'
-  - '!tests/*'
+  - '!src/*'             # Código fonte não vai pro pacote (só o build compilado)
+  - '!tests/*'           # Testes também não vão
   - '!electron.vite.config.{js,ts,mjs,cjs}'
   - '!{.eslintignore,.eslintrc.cjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
   - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
   - '!{vitest.config.ts,playwright.config.ts}'
+
+# Ponto de entrada do main process (resultado do build)
 extraMetadata:
   main: ./out/main/index.js
+
+# Módulos nativos que NÃO devem ser comprimidos no ASAR
+# better-sqlite3 é um módulo nativo (C++) que precisa ficar descomprimido
+# para ser carregado pelo Node.js em runtime
 asarUnpack:
   - resources/**
   - node_modules/better-sqlite3/**
+
+# ── Windows ──
 win:
   executableName: electron-notas
-  icon: build/icon.ico
+  icon: build/icon.ico        # Ícone .ico para Windows
   target:
-    - target: nsis
+    - target: nsis             # NSIS = instalador clássico do Windows
       arch:
         - x64
+
+# Configurações do instalador NSIS
 nsis:
   artifactName: ${name}-${version}-setup.${ext}
   shortcutName: ${productName}
   uninstallDisplayName: ${productName}
   createDesktopShortcut: always
-  oneClick: false
-  allowToChangeInstallationDirectory: true
+  oneClick: false                        # Mostra wizard de instalação
+  allowToChangeInstallationDirectory: true # Usuário escolhe onde instalar
+
+# ── macOS ──
 mac:
-  icon: build/icon.icns
+  icon: build/icon.icns       # Ícone .icns para macOS
   entitlementsInherit: build/entitlements.mac.plist
   extendInfo:
     - NSCameraUsageDescription: Application requests access to the device's camera.
     - NSMicrophoneUsageDescription: Application requests access to the device's microphone.
     - NSDocumentsFolderUsageDescription: Application requests access to the user's Documents folder.
     - NSDownloadsFolderUsageDescription: Application requests access to the user's Downloads folder.
-  notarize: false
+  notarize: false              # Desabilitado para dev (em prod, ative para distribuição)
   target:
-    - target: dmg
+    - target: dmg              # DMG = formato padrão de distribuição no macOS
       arch:
-        - x64
-        - arm64
+        - x64                  # Intel Mac
+        - arm64                # Apple Silicon (M1/M2/M3)
+
+# ── Linux ──
 linux:
   icon: build/icons
   target:
-    - AppImage
-    - deb
+    - AppImage                 # Formato universal (roda sem instalar)
+    - deb                      # Pacote Debian/Ubuntu
   maintainer: Thiago Carmona
   category: Utility
   desktop:
     Name: Electron Notas
     Comment: App de notas desktop
+
+# Recompila módulos nativos (necessário para better-sqlite3)
 npmRebuild: true
+
+# Configuração de publicação automática via GitHub Releases
+# Quando você cria uma tag (ex.: v1.0.0), o CI/CD builda e publica aqui
 publish:
   provider: github
   owner: ThiagoCarmona
