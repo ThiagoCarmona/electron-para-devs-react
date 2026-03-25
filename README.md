@@ -1,113 +1,109 @@
-# Lição 03 — React no Renderer
+# Lição 04 — IPC na Prática
 
-> Nesta lição vamos construir a interface do app de notas usando componentes React com estilo.
+> Nesta lição movemos os dados das notas para o main process e criamos um CRUD completo via IPC.
 
-## O que mudou desde a lição 02
+## O que mudou desde a lição 03
 
 ```bash
-git diff lesson-02..lesson-03 --stat
+git diff lesson-03..lesson-04 --stat
 ```
 
 Arquivos novos:
-- `src/renderer/src/types.ts` — Interface `Note`
-- `src/renderer/src/components/NoteList.tsx` — Lista de notas na sidebar
-- `src/renderer/src/components/NoteEditor.tsx` — Editor de nota
-- `src/renderer/src/styles/global.css` — Estilos do app
+- `src/shared/types.ts` — Tipos e constantes de canais IPC compartilhados
+- `src/main/notes.ts` — Lógica de CRUD no main process
 
 Arquivos modificados:
-- `src/renderer/src/App.tsx` — Layout com sidebar + editor
+- `src/main/index.ts` — Registra handlers IPC
+- `src/preload/index.ts` — Expõe funções de CRUD ao renderer
+- `src/preload/index.d.ts` — Tipos atualizados
+- `src/renderer/src/App.tsx` — Usa IPC em vez de estado local
+- `src/renderer/src/types.ts` — Re-exporta tipos compartilhados
 
-## A interface
+## A grande mudança
 
-O app agora tem um layout de duas colunas:
+Na lição 03, as notas viviam no `useState` do React. Se você fechasse o app, perdia tudo. Agora, as notas vivem no **main process**. O React pede dados via IPC e recebe respostas.
+
+O fluxo fica assim:
 
 ```
-┌─────────────┬───────────────────────┐
-│  Sidebar    │  Editor                 │
-│             │                         │
-│  [Nota 1]   │  Título da nota          │
-│  [Nota 2]   │  Editado em 25/03/2026   │
-│  [Nota 3]   │                         │
-│             │  Conteúdo da nota...     │
-│  [+ Nova]   │                         │
-└─────────────┴───────────────────────┘
+React (renderer)  --->  preload (api.getNotes)  --->  ipcRenderer.invoke
+       ↑                                                      │
+       │                                                      ↓
+       └─────────────  retorna Promise  <─────  ipcMain.handle
+                                                        (main process)
 ```
 
-## Decisões de design
+## `src/shared/types.ts` — Código compartilhado
 
-### Por que CSS puro?
+Criamos uma pasta `shared/` para código que o main, o preload e o renderer usam. Isso evita duplicar a interface `Note` e garante que os canais IPC sejam consistentes.
 
-Usamos CSS puro em vez de Tailwind, styled-components, ou CSS modules. Razões:
+As constantes `IPC_CHANNELS` evitam erros de digitação nos nomes dos canais. Se você errar o nome, o TypeScript avisa.
 
-1. Menos dependências para instalar e configurar
-2. O foco do curso é Electron, não estilização
-3. Mais fácil de entender sem conhecimento extra
+## `src/main/notes.ts` — O "backend"
 
-Você pode trocar para o que preferir no seu projeto real.
+Este arquivo contém a lógica de dados. Por enquanto usa um array em memória, mas a interface é a mesma que vamos usar com SQLite na lição 05.
 
-### Por que notas em memória?
+Funções:
+- `getAllNotes()` — Retorna todas as notas ordenadas por data
+- `createNote(title, content)` — Cria uma nova nota com UUID
+- `updateNote(id, title, content)` — Atualiza uma nota existente
+- `deleteNote(id)` — Remove uma nota
 
-As notas ainda são `useState` com dados hardcoded. Se você recarregar o app, perde tudo. Isso é proposital — na lição 04 vamos mover os dados para o main process, e na 05 vamos persistí-los com SQLite.
+## `ipcMain.handle` — Os endpoints
 
-## Os componentes
-
-### `types.ts` — A interface Note
+No `src/main/index.ts`, registramos quatro handlers:
 
 ```ts
-export interface Note {
-  id: string
-  title: string
-  content: string
-  createdAt: string
-  updatedAt: string
+ipcMain.handle('notes:getAll', () => getAllNotes())
+ipcMain.handle('notes:create', (_, title, content) => createNote(title, content))
+ipcMain.handle('notes:update', (_, id, title, content) => updateNote(id, title, content))
+ipcMain.handle('notes:delete', (_, id) => deleteNote(id))
+```
+
+Pense neles como rotas de uma API REST, mas sem HTTP. O primeiro parâmetro `_` é o evento do IPC (que ignoramos aqui).
+
+## O preload como contrato
+
+O preload define o contrato entre main e renderer:
+
+```ts
+const api = {
+  getNotes: () => ipcRenderer.invoke('notes:getAll'),
+  createNote: (title, content) => ipcRenderer.invoke('notes:create', title, content),
+  // ...
 }
 ```
 
-Simpls e direto. Usa `string` para datas (ISO 8601) porque JSON não tem tipo Date.
+O renderer não sabe que existe `ipcRenderer`. Ele só vê `window.api.getNotes()` — uma função assíncrona que retorna notas.
 
-### `NoteList` — A sidebar
+## O React agora é assíncrono
 
-Recebe as notas e callbacks. Cada item mostra título e preview do conteúdo. O botão de excluir usa `e.stopPropagation()` para não selecionar a nota ao clicar.
-
-### `NoteEditor` — O editor
-
-Usa estado local (`useState`) para título e conteúdo, sincronizando com a nota selecionada via `useEffect` quando `note.id` muda. Cada digitação chama `onUpdate` para manter o estado do App sincronizado.
-
-### `App` — O orquestrador
-
-O `App` mantém o estado das notas e a nota selecionada. Ele passa callbacks para os filhos: `onSelect`, `onUpdate`, `onCreate`, `onDelete`.
-
-## Padrões React aplicados aqui
-
-- **Lifting state up**: O estado vive no `App` e os filhos recebem via props
-- **Controlled components**: Os inputs do editor são controlados pelo estado
-- **Key prop**: A lista usa `note.id` como key para reconciliação eficiente
-- **Event delegation**: `stopPropagation` no botão de excluir
+A principal mudança no `App.tsx`: todas as operações agora são `async/await`, e o `useEffect` carrega as notas ao iniciar.
 
 ## Teste seu entendimento
 
-1. Por que o `NoteEditor` tem seu próprio `useState` se o estado já está no `App`?
-2. O que acontece se você não passar `key` na lista de notas?
-3. Por que usamos `note.id` no `useEffect` do editor em vez do objeto `note` inteiro?
+1. Por que `ipcMain.handle` em vez de `ipcMain.on`?
+2. O que acontece se o renderer chamar um canal IPC que não existe no main?
+3. Por que colocamos os tipos em `shared/` em vez de definir em cada processo?
 
 <details>
 <summary>Ver respostas</summary>
 
-1. Para que a digitação seja responsiva. Se dependesse só do estado do App, cada tecla causaria re-render da árvore inteira. O estado local do editor atualiza rápido e propaga para o App.
-2. O React não conseguiria saber qual item mudou, adicionou ou removeu. Poderia causar bugs visuais e problemas de performance.
-3. Porque queremos resetar o editor só quando o usuário troca de nota, não quando o conteúdo muda. Se usássemos `note`, o `useEffect` rodaria a cada digitação.
+1. Porque `handle`/`invoke` retorna uma Promise. O renderer pode `await` a resposta. `on`/`send` é fire-and-forget.
+2. A Promise retorna `undefined`. Não dá erro, mas também não faz nada — um bug silencioso. Por isso usamos constantes para os canais.
+3. Para garantir que main, preload e renderer usem os mesmos tipos. Se mudarmos a interface `Note`, todos os processos são atualizados juntos.
 
 </details>
 
 ## Desafio
 
-Adicione uma barra de busca no topo da sidebar que filtra as notas por título. Use `useState` para o termo de busca e `filter` para filtrar a lista.
+Adicione um handler IPC `notes:search` que recebe um termo de busca e retorna só as notas cujo título ou conteúdo contém esse termo. Exponha como `api.searchNotes(term)` no preload.
 
 ## Próxima lição
 
 ```bash
-git checkout lesson-04
+git checkout lesson-05
 npm install
 ```
 
-Na lição 04, vamos mover os dados das notas para o main process e criar handlers IPC para o CRUD completo.
+Na lição 05, vamos trocar o array em memória por um banco SQLite com better-sqlite3.

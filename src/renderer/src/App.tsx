@@ -1,65 +1,59 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { NoteList } from './components/NoteList'
 import { NoteEditor } from './components/NoteEditor'
 import { Note } from './types'
 import './styles/global.css'
 
-// Notas de exemplo (temporárias — na lição 04 vem do main process)
-const sampleNotes: Note[] = [
-  {
-    id: '1',
-    title: 'Bem-vindo ao Electron Notas',
-    content: 'Este é o seu app de notas desktop. Nas próximas lições, vamos adicionar persistência e mais funcionalidades.',
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
-  },
-  {
-    id: '2',
-    title: 'Dica: atalhos',
-    content: 'Use Ctrl+N para criar uma nova nota (em breve!).',
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
-  }
-]
-
 function App(): JSX.Element {
-  const [notes, setNotes] = useState<Note[]>(sampleNotes)
-  const [selectedNote, setSelectedNote] = useState<Note | null>(sampleNotes[0])
+  const [notes, setNotes] = useState<Note[]>([])
+  const [selectedNote, setSelectedNote] = useState<Note | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  // Carrega as notas do main process ao iniciar
+  useEffect(() => {
+    window.api.getNotes().then((data) => {
+      setNotes(data)
+      if (data.length > 0) setSelectedNote(data[0])
+      setLoading(false)
+    })
+  }, [])
 
   const handleSelectNote = (note: Note): void => {
     setSelectedNote(note)
   }
 
-  const handleUpdateNote = (id: string, title: string, content: string): void => {
-    setNotes((prev) =>
-      prev.map((n) =>
-        n.id === id ? { ...n, title, content, updatedAt: new Date().toISOString() } : n
-      )
-    )
+  const handleUpdateNote = async (id: string, title: string, content: string): Promise<void> => {
+    const updated = await window.api.updateNote(id, title, content)
+    if (!updated) return
+
+    setNotes((prev) => prev.map((n) => (n.id === id ? updated : n)))
     if (selectedNote?.id === id) {
-      setSelectedNote((prev) =>
-        prev ? { ...prev, title, content, updatedAt: new Date().toISOString() } : null
-      )
+      setSelectedNote(updated)
     }
   }
 
-  const handleCreateNote = (): void => {
-    const newNote: Note = {
-      id: Date.now().toString(),
-      title: 'Nova nota',
-      content: '',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    }
+  const handleCreateNote = async (): Promise<void> => {
+    const newNote = await window.api.createNote('Nova nota', '')
     setNotes((prev) => [newNote, ...prev])
     setSelectedNote(newNote)
   }
 
-  const handleDeleteNote = (id: string): void => {
+  const handleDeleteNote = async (id: string): Promise<void> => {
+    const success = await window.api.deleteNote(id)
+    if (!success) return
+
     setNotes((prev) => prev.filter((n) => n.id !== id))
     if (selectedNote?.id === id) {
       setSelectedNote(null)
     }
+  }
+
+  if (loading) {
+    return (
+      <div className="app">
+        <div className="empty-state">Carregando...</div>
+      </div>
+    )
   }
 
   return (

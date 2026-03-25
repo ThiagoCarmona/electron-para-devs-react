@@ -1,6 +1,8 @@
 import { app, shell, BrowserWindow, ipcMain } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
+import { IPC_CHANNELS } from '../shared/types'
+import { getAllNotes, createNote, updateNote, deleteNote } from './notes'
 
 function createWindow(): void {
   const mainWindow = new BrowserWindow({
@@ -30,6 +32,25 @@ function createWindow(): void {
   }
 }
 
+// Registra os handlers IPC para o CRUD de notas
+function registerIpcHandlers(): void {
+  ipcMain.handle(IPC_CHANNELS.NOTES_GET_ALL, () => {
+    return getAllNotes()
+  })
+
+  ipcMain.handle(IPC_CHANNELS.NOTES_CREATE, (_, title: string, content: string) => {
+    return createNote(title, content)
+  })
+
+  ipcMain.handle(IPC_CHANNELS.NOTES_UPDATE, (_, id: string, title: string, content: string) => {
+    return updateNote(id, title, content)
+  })
+
+  ipcMain.handle(IPC_CHANNELS.NOTES_DELETE, (_, id: string) => {
+    return deleteNote(id)
+  })
+}
+
 app.whenReady().then(() => {
   electronApp.setAppUserModelId('com.electron')
 
@@ -37,9 +58,7 @@ app.whenReady().then(() => {
     optimizer.watchWindowShortcuts(window)
   })
 
-  // Handler IPC: responde ao ping com pong
-  ipcMain.handle('ping', () => 'pong')
-
+  registerIpcHandlers()
   createWindow()
 
   app.on('activate', () => {
