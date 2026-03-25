@@ -8,10 +8,20 @@ import { closeDatabase } from './database'
 import { createAppMenu } from './menu'
 import { createTray } from './tray'
 import { validateNoteInput, validateId, sanitizeString } from './validation'
+import { logger, setLogLevel } from './logger'
 
 let mainWindow: BrowserWindow
 
+// Em dev, loga tudo. Em produção, só info+.
+if (is.dev) {
+  setLogLevel('debug')
+} else {
+  setLogLevel('info')
+}
+
 function createWindow(): void {
+  logger.info('app', 'Criando janela principal')
+
   mainWindow = new BrowserWindow({
     width: 900,
     height: 670,
@@ -20,37 +30,48 @@ function createWindow(): void {
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false,
-      // Segurança: desabilita integração com Node no renderer
       nodeIntegration: false,
-      // Segurança: isola o contexto do preload
       contextIsolation: true,
-      // Segurança: desabilita execução remota
       enableRemoteModule: false,
-      // Segurança: bloqueia navegação para URLs externas
-      navigateOnDragDrop: false
+      navigateOnDragDrop: false,
+      // Debug: abre DevTools em dev
+      devTools: is.dev
     } as Electron.WebPreferences
   })
 
   mainWindow.on('ready-to-show', () => {
     mainWindow.show()
+    // Abre DevTools automaticamente em dev
+    if (is.dev) {
+      mainWindow.webContents.openDevTools({ mode: 'right' })
+    }
   })
 
-  // Segurança: abre links externos no navegador padrão
   mainWindow.webContents.setWindowOpenHandler((details) => {
     shell.openExternal(details.url)
     return { action: 'deny' }
   })
 
-  // Segurança: bloqueia navegação para URLs não permitidas
   mainWindow.webContents.on('will-navigate', (event, url) => {
     const allowed = is.dev
       ? [process.env['ELECTRON_RENDERER_URL'] || '']
       : ['file://']
-
     const isAllowed = allowed.some((prefix) => url.startsWith(prefix))
     if (!isAllowed) {
       event.preventDefault()
-      console.warn(`Navegação bloqueada: ${url}`)
+      logger.warn('security', `Navegação bloqueada: ${url}`)
+    }
+  })
+
+  // Debug: loga erros do renderer
+  mainWindow.webContents.on('render-process-gone', (_event, details) => {
+    logger.error('renderer', 'Renderer process crashed', details)
+  })
+
+  mainWindow.webContents.on('console-message', (_event, level, message, line, sourceId) => {
+    if (level >= 2) {
+      // warn ou error
+      logger.warn('renderer-console', `[${sourceId}:${line}] ${message}`)
     }
   })
 
@@ -65,16 +86,25 @@ function createWindow(): void {
 }
 
 function registerIpcHandlers(): void {
-  // CRUD com validação de input
-  ipcMain.handle(IPC_CHANNELS.NOTES_GET_ALL, () => getAllNotes())
+  logger.info('ipc', 'Registrando handlers IPC')
+
+  ipcMain.handle(IPC_CHANNELS.NOTES_GET_ALL, () => {
+    logger.debug('ipc', 'notes:getAll chamado')
+    return getAllNotes()
+  })
 
   ipcMain.handle(IPC_CHANNELS.NOTES_CREATE, (_, title: unknown, content: unknown) => {
+    logger.debug('ipc', 'notes:create chamado', { title })
     const validation = validateNoteInput(title, content)
-    if (!validation.valid) throw new Error(validation.error)
+    if (!validation.valid) {
+      logger.warn('ipc', 'Validação falhou em notes:create', { error: validation.error })
+      throw new Error(validation.error)
+    }
     return createNote(sanitizeString(title as string), sanitizeString(content as string))
   })
 
   ipcMain.handle(IPC_CHANNELS.NOTES_UPDATE, (_, id: unknown, title: unknown, content: unknown) => {
+    logger.debug('ipc', 'notes:update chamado', { id })
     if (!validateId(id)) throw new Error('ID inválido')
     const validation = validateNoteInput(title, content)
     if (!validation.valid) throw new Error(validation.error)
@@ -82,12 +112,13 @@ function registerIpcHandlers(): void {
   })
 
   ipcMain.handle(IPC_CHANNELS.NOTES_DELETE, (_, id: unknown) => {
+    logger.debug('ipc', 'notes:delete chamado', { id })
     if (!validateId(id)) throw new Error('ID inválido')
     return deleteNote(id as string)
   })
 
-  // Exportar nota
   ipcMain.handle(IPC_CHANNELS.NOTES_EXPORT, async (_, title: string, content: string) => {
+    logger.info('ipc', 'notes:export chamado', { title })
     const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
       title: 'Exportar Nota',
       defaultPath: `${title || 'nota'}.txt`,
@@ -98,11 +129,12 @@ function registerIpcHandlers(): void {
     })
     if (canceled || !filePath) return false
     writeFileSync(filePath, `# ${title}\n\n${content}`, 'utf-8')
+    logger.info('ipc', `Nota exportada para ${filePath}`)
     return true
   })
 
-  // Importar nota
   ipcMain.handle(IPC_CHANNELS.NOTES_IMPORT, async () => {
+    logger.info('ipc', 'notes:import chamado')
     const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
       title: 'Importar Nota',
       filters: [{ name: 'Texto', extensions: ['txt', 'md'] }],
@@ -112,10 +144,10 @@ function registerIpcHandlers(): void {
     const content = readFileSync(filePaths[0], 'utf-8')
     const fileName = filePaths[0].split(/[\\/]/).pop() || 'Nota importada'
     const title = fileName.replace(/\.(txt|md)$/, '')
+    logger.info('ipc', `Nota importada: ${title}`)
     return createNote(title, content)
   })
 
-  // Notificação
   ipcMain.handle(IPC_CHANNELS.APP_SHOW_NOTIFICATION, (_, title: string, body: string) => {
     new Notification({ title, body }).show()
     return true
@@ -123,7 +155,6 @@ function registerIpcHandlers(): void {
 }
 
 function configureSecurityHeaders(): void {
-  // Segurança: configura headers de resposta
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
     callback({
       responseHeaders: {
@@ -135,7 +166,6 @@ function configureSecurityHeaders(): void {
     })
   })
 
-  // Segurança: bloqueia permissões desnecessárias
   session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
     const allowedPermissions = ['clipboard-read', 'clipboard-sanitized-write']
     callback(allowedPermissions.includes(permission))
@@ -143,6 +173,9 @@ function configureSecurityHeaders(): void {
 }
 
 app.whenReady().then(() => {
+  logger.info('app', `App iniciado (${is.dev ? 'dev' : 'prod'})`)
+  logger.info('app', `Electron ${process.versions.electron}, Node ${process.versions.node}`)
+
   electronApp.setAppUserModelId('com.electron')
 
   app.on('browser-window-created', (_, window) => {
@@ -165,5 +198,15 @@ app.on('window-all-closed', () => {
 })
 
 app.on('before-quit', () => {
+  logger.info('app', 'App encerrando')
   closeDatabase()
+})
+
+// Captura erros não tratados
+process.on('uncaughtException', (error) => {
+  logger.error('app', 'Erro não tratado', { message: error.message, stack: error.stack })
+})
+
+process.on('unhandledRejection', (reason) => {
+  logger.error('app', 'Promise rejeitada não tratada', { reason })
 })

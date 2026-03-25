@@ -1,107 +1,118 @@
-# Lição 08 — Segurança
+# Lição 09 — Debug
 
-> Nesta lição endurecemos a segurança do app: validação de inputs, CSP, bloqueio de navegação e permissões.
+> Nesta lição aprendemos a debugar um app Electron: logs estruturados, DevTools, sourcemaps e captura de erros.
 
-## O que mudou desde a lição 07
+## O que mudou desde a lição 08
 
 ```bash
-git diff lesson-07..lesson-08 --stat
+git diff lesson-08..lesson-09 --stat
 ```
 
 Arquivos novos:
-- `src/main/validation.ts` — Validação e sanitização de inputs
+- `src/main/logger.ts` — Sistema de logging com níveis e arquivo
 
 Arquivos modificados:
-- `src/main/index.ts` — Configurações de segurança, validação nos handlers
-- `src/renderer/index.html` — CSP mais restritiva
+- `src/main/index.ts` — Logs em todo lugar, DevTools automático, captura de erros
 
-## Por que segurança em app desktop?
+## O desafio de debugar no Electron
 
-Você pode pensar: "Meu app é local, não é um site. Quem vai atacar?" Existem riscos reais:
+No web, você abre o DevTools e tudo está lá. No Electron, existem **dois processos separados** para debugar:
 
-1. Se o app importa arquivos, um arquivo malicioso pode tentar injetar código
-2. Se o app abre URLs, links maliciosos podem redirecionar o renderer
-3. Se o renderer tiver acesso ao Node.js, um XSS dá controle total do computador
-4. Updates automáticos podem ser interceptados (man-in-the-middle)
+- **Renderer** — DevTools normal (Ctrl+Shift+I)
+- **Main process** — Não tem DevTools. Precisa de outra abordagem.
 
-## O que fizemos
+## O sistema de logging
 
-### 1. Validação de input no main process
+Criamos `src/main/logger.ts` com:
 
-Criamos `src/main/validation.ts` com três funções:
+- **4 níveis**: debug, info, warn, error
+- **Saída dupla**: console + arquivo
+- **Contexto**: cada log tem um contexto (ex: `ipc`, `app`, `security`)
+- **Timestamp**: ISO 8601 em cada linha
 
-- `validateNoteInput(title, content)` — Verifica tipos e tamanhos
-- `validateId(id)` — Verifica formato do ID
-- `sanitizeString(input)` — Remove caracteres de controle
-
-A regra: **nunca confie nos dados do renderer**. Mesmo que o preload pareça seguro, valide tudo no main process.
-
-### 2. CSP (Content Security Policy) mais restritiva
-
-No `index.html`, a CSP agora bloqueia:
-- Scripts de fontes externas (`script-src 'self'`)
-- Conteúdo embutido malicioso (sem `unsafe-eval`)
-- Imagens de fontes externas (`img-src 'self' data:`)
-
-### 3. Configurações do BrowserWindow
+Os logs ficam em `{userData}/logs/YYYY-MM-DD.log`. Para encontrar esse caminho:
 
 ```ts
-nodeIntegration: false     // Renderer não acessa Node.js
-contextIsolation: true     // Preload é isolado do renderer
-enableRemoteModule: false  // Módulo remote desabilitado
-navigateOnDragDrop: false  // Arrastar arquivo não navega
+app.getPath('userData')
+// Windows: %APPDATA%/electron-notas
+// macOS: ~/Library/Application Support/electron-notas
+// Linux: ~/.config/electron-notas
 ```
 
-### 4. Bloqueio de navegação
+## DevTools automático
 
-O evento `will-navigate` impede que o renderer navegue para URLs não permitidas. Isso previne ataques onde um link malicioso redireciona a janela.
+Em dev, o DevTools abre automaticamente no lado direito. Em produção, é desabilitado:
 
-### 5. Headers de segurança
+```ts
+devTools: is.dev
+```
 
-Adicionamos headers HTTP via `session.webRequest.onHeadersReceived`:
-- `X-Content-Type-Options: nosniff`
-- `X-Frame-Options: DENY`
-- `X-XSS-Protection: 1; mode=block`
+## Captura de erros
 
-### 6. Bloqueio de permissões
+Dois handlers globais capturam erros no main process:
 
-`setPermissionRequestHandler` bloqueia pedidos de permissão (câmera, microfone, geolocalização) que o app não precisa.
+- `process.on('uncaughtException')` — Erros síncronos não tratados
+- `process.on('unhandledRejection')` — Promises rejeitadas sem catch
 
-## Checklist de segurança para Electron
+Além disso, escutamos eventos do renderer:
 
-- [x] `nodeIntegration: false`
-- [x] `contextIsolation: true`
-- [x] CSP definida
-- [x] Navegação bloqueada
-- [x] Inputs validados no main
-- [x] Permissões restringidas
-- [x] Links externos abrem no navegador
-- [ ] HTTPS para updates (lição 11)
+- `render-process-gone` — Renderer crashou
+- `console-message` — Console.warn e console.error do renderer aparecem nos logs do main
+
+## Como debugar cada parte
+
+### Renderer (React)
+
+1. Abra o DevTools (Ctrl+Shift+I ou automático em dev)
+2. Aba Console: erros do React, logs do `console.log`
+3. Aba Sources: breakpoints no código TypeScript (sourcemaps)
+4. Aba Network: chamadas IPC aparecem como mensagens
+
+### Main process
+
+1. Logs no terminal onde você rodou `npm run dev`
+2. Arquivo de log em `{userData}/logs/`
+3. Para breakpoints: rode com `--inspect`:
+
+```bash
+# No package.json, adicione temporariamente:
+"dev:debug": "electron-vite dev -- --inspect=5858"
+```
+
+Depois abra `chrome://inspect` no Chrome e conecte.
+
+### IPC
+
+Problemas comuns e como diagnosticar:
+
+- **Canal errado**: O log mostra "chamado" mas não "respondido" → Verifique o nome do canal
+- **Dados errados**: O log mostra os dados enviados → Compare com o esperado
+- **Sem resposta**: O handler não está registrado → Verifique `registerIpcHandlers()`
 
 ## Teste seu entendimento
 
-1. Por que validamos no main process se o preload já garante os tipos?
-2. O que é CSP e por que é importante no Electron?
-3. Por que `nodeIntegration: false` é a configuração padrão?
+1. Por que não usamos só `console.log` para tudo?
+2. Como você debugaria um problema que só acontece em produção?
+3. Por que desabilitamos DevTools em produção?
 
 <details>
 <summary>Ver respostas</summary>
 
-1. Porque o preload é parte do renderer. Se um atacante conseguir executar código no renderer (XSS), ele pode chamar `window.api` com qualquer input. O main process é a última linha de defesa.
-2. CSP define quais recursos podem ser carregados. Sem ela, um XSS poderia carregar scripts externos. No Electron isso é crítico porque scripts têm potencial acesso ao sistema.
-3. Porque se `nodeIntegration` fosse `true`, qualquer código no renderer teria acesso a `require('child_process')`, `require('fs')`, etc. Um XSS simples daria controle total do computador.
+1. `console.log` no main process vai para o terminal, mas se perde quando o terminal fecha. O logger salva em arquivo, tem níveis (filtrar debug em prod) e contexto (saber de onde veio).
+2. Pelos arquivos de log! O logger salva em `{userData}/logs/`. Também podemos adicionar error reporting (Sentry, etc) no futuro.
+3. Para impedir que usuários acessem o console e executem código JavaScript diretamente, o que seria um risco de segurança.
 
 </details>
 
 ## Desafio
 
-Adicione rate limiting ao handler `notes:create` para impedir que um script malicioso crie milhares de notas por segundo. Limite a 10 criações por minuto.
+Adicione um comando "Ver Logs" no menu Ajuda que abre a pasta de logs no gerenciador de arquivos do sistema (use `shell.openPath`).
 
 ## Próxima lição
 
 ```bash
-git checkout lesson-09
+git checkout lesson-10
 npm install
 ```
 
-Na lição 09, vamos aprender a debugar o app — main process, renderer e IPC.
+Na lição 10, vamos adicionar testes automatizados.
