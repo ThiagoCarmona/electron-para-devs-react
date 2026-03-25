@@ -1,0 +1,189 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen,
+    Ubuntu, Cantarell, sans-serif;
+  background: #1a1a2e;
+  color: #e0e0e0;
+  overflow: hidden;
+}
+
+.app {
+  display: flex;
+  height: 100vh;
+}
+
+/* Sidebar */
+.sidebar {
+  width: 280px;
+  background: #16213e;
+  border-right: 1px solid #0f3460;
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+}
+
+.sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem;
+  border-bottom: 1px solid #0f3460;
+}
+
+.sidebar-header h1 {
+  font-size: 1.2rem;
+  font-weight: 600;
+  color: #e94560;
+}
+
+.btn-new {
+  background: #e94560;
+  color: white;
+  border: none;
+  padding: 0.4rem 0.8rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 500;
+  transition: background 0.2s;
+}
+
+.btn-new:hover {
+  background: #c73652;
+}
+
+/* Note List */
+.note-list {
+  list-style: none;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.note-list-empty {
+  padding: 2rem 1rem;
+  text-align: center;
+  color: #666;
+}
+
+.note-item {
+  display: flex;
+  align-items: center;
+  padding: 0.75rem 1rem;
+  cursor: pointer;
+  border-bottom: 1px solid #0f3460;
+  transition: background 0.15s;
+}
+
+.note-item:hover {
+  background: #1a1a3e;
+}
+
+.note-item.selected {
+  background: #0f3460;
+}
+
+.note-item-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.note-item-title {
+  display: block;
+  font-size: 0.9rem;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #e0e0e0;
+}
+
+.note-item-preview {
+  display: block;
+  font-size: 0.78rem;
+  color: #888;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 2px;
+}
+
+.btn-delete {
+  background: none;
+  border: none;
+  color: #666;
+  font-size: 1.2rem;
+  cursor: pointer;
+  padding: 0 0.3rem;
+  margin-left: 0.5rem;
+  border-radius: 4px;
+  transition: color 0.2s, background 0.2s;
+}
+
+.btn-delete:hover {
+  color: #e94560;
+  background: rgba(233, 69, 96, 0.1);
+}
+
+/* Editor */
+.editor-area {
+  flex: 1;
+  display: flex;
+  background: #1a1a2e;
+}
+
+.empty-state {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #555;
+  font-size: 1rem;
+}
+
+.editor {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 1.5rem;
+}
+
+.editor-title {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: #e0e0e0;
+  outline: none;
+  margin-bottom: 0.3rem;
+}
+
+.editor-title::placeholder {
+  color: #555;
+}
+
+.editor-date {
+  font-size: 0.75rem;
+  color: #555;
+  margin-bottom: 1rem;
+}
+
+.editor-content {
+  flex: 1;
+  background: none;
+  border: none;
+  color: #d0d0d0;
+  font-size: 0.95rem;
+  line-height: 1.7;
+  resize: none;
+  outline: none;
+  font-family: inherit;
+}
+
+.editor-content::placeholder {
+  color: #444;
+}

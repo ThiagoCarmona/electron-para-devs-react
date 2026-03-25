@@ -1,51 +1,92 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
+import { NoteList } from './components/NoteList'
+import { NoteEditor } from './components/NoteEditor'
+import { Note } from './types'
+import './styles/global.css'
+
+// Notas de exemplo (temporárias — na lição 04 vem do main process)
+const sampleNotes: Note[] = [
+  {
+    id: '1',
+    title: 'Bem-vindo ao Electron Notas',
+    content: 'Este é o seu app de notas desktop. Nas próximas lições, vamos adicionar persistência e mais funcionalidades.',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  },
+  {
+    id: '2',
+    title: 'Dica: atalhos',
+    content: 'Use Ctrl+N para criar uma nova nota (em breve!).',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  }
+]
 
 function App(): JSX.Element {
-  const [versions, setVersions] = useState({ electron: '', chrome: '', node: '' })
-  const [platform, setPlatform] = useState('')
-  const [pingResult, setPingResult] = useState('')
+  const [notes, setNotes] = useState<Note[]>(sampleNotes)
+  const [selectedNote, setSelectedNote] = useState<Note | null>(sampleNotes[0])
 
-  useEffect(() => {
-    // Busca as versões via preload API
-    const v = window.api.getVersions()
-    setVersions(v)
+  const handleSelectNote = (note: Note): void => {
+    setSelectedNote(note)
+  }
 
-    // Busca a plataforma
-    setPlatform(window.api.getPlatform())
-  }, [])
+  const handleUpdateNote = (id: string, title: string, content: string): void => {
+    setNotes((prev) =>
+      prev.map((n) =>
+        n.id === id ? { ...n, title, content, updatedAt: new Date().toISOString() } : n
+      )
+    )
+    if (selectedNote?.id === id) {
+      setSelectedNote((prev) =>
+        prev ? { ...prev, title, content, updatedAt: new Date().toISOString() } : null
+      )
+    }
+  }
 
-  const handlePing = async (): Promise<void> => {
-    const result = await window.api.ping()
-    setPingResult(result)
+  const handleCreateNote = (): void => {
+    const newNote: Note = {
+      id: Date.now().toString(),
+      title: 'Nova nota',
+      content: '',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    }
+    setNotes((prev) => [newNote, ...prev])
+    setSelectedNote(newNote)
+  }
+
+  const handleDeleteNote = (id: string): void => {
+    setNotes((prev) => prev.filter((n) => n.id !== id))
+    if (selectedNote?.id === id) {
+      setSelectedNote(null)
+    }
   }
 
   return (
-    <div style={{ padding: '2rem', fontFamily: 'system-ui, sans-serif' }}>
-      <h1>Electron Notas</h1>
-
-      <section style={{ marginTop: '1.5rem' }}>
-        <h2>Versões</h2>
-        <ul style={{ lineHeight: 1.8 }}>
-          <li>Electron: {versions.electron}</li>
-          <li>Chrome: {versions.chrome}</li>
-          <li>Node: {versions.node}</li>
-        </ul>
-        <p style={{ color: '#666', fontSize: '0.9rem' }}>
-          Plataforma: {platform}
-        </p>
-      </section>
-
-      <section style={{ marginTop: '1.5rem' }}>
-        <h2>Teste de IPC</h2>
-        <button onClick={handlePing} style={{ padding: '0.5rem 1rem', cursor: 'pointer' }}>
-          Enviar Ping
-        </button>
-        {pingResult && (
-          <p style={{ marginTop: '0.5rem' }}>
-            Resposta do main process: <strong>{pingResult}</strong>
-          </p>
+    <div className="app">
+      <aside className="sidebar">
+        <div className="sidebar-header">
+          <h1>Notas</h1>
+          <button className="btn-new" onClick={handleCreateNote}>
+            + Nova
+          </button>
+        </div>
+        <NoteList
+          notes={notes}
+          selectedId={selectedNote?.id || null}
+          onSelect={handleSelectNote}
+          onDelete={handleDeleteNote}
+        />
+      </aside>
+      <main className="editor-area">
+        {selectedNote ? (
+          <NoteEditor note={selectedNote} onUpdate={handleUpdateNote} />
+        ) : (
+          <div className="empty-state">
+            <p>Selecione uma nota ou crie uma nova</p>
+          </div>
         )}
-      </section>
+      </main>
     </div>
   )
 }
