@@ -1,3 +1,15 @@
+/**
+ * index.ts — Main Process (Lição 09 — Logging e Debug)
+ *
+ * Nesta lição adicionamos:
+ * - Sistema de logging com níveis (debug/info/warn/error)
+ * - Logs gravados em arquivo para diagnóstico em produção
+ * - DevTools abrem automaticamente em dev
+ * - Captura de crashes do renderer
+ * - Captura de erros não tratados (uncaughtException, unhandledRejection)
+ * - Logs em cada handler IPC para rastrear operações
+ */
+
 import { app, shell, BrowserWindow, ipcMain, dialog, Notification, session } from 'electron'
 import { join } from 'path'
 import { writeFileSync, readFileSync } from 'fs'
@@ -12,7 +24,8 @@ import { logger, setLogLevel } from './logger'
 
 let mainWindow: BrowserWindow
 
-// Em dev, loga tudo. Em produção, só info+.
+// Configura nível de log baseado no ambiente:
+// dev = debug (mostra tudo), prod = info (esconde debug)
 if (is.dev) {
   setLogLevel('debug')
 } else {
@@ -34,14 +47,15 @@ function createWindow(): void {
       contextIsolation: true,
       enableRemoteModule: false,
       navigateOnDragDrop: false,
-      // Debug: abre DevTools em dev
+      // devTools: só habilitado em dev (em prod, usuário não precisa)
       devTools: is.dev
     } as Electron.WebPreferences
   })
 
   mainWindow.on('ready-to-show', () => {
     mainWindow.show()
-    // Abre DevTools automaticamente em dev
+    // Abre DevTools automaticamente em dev (modo "right" = painel lateral)
+    // Isso facilita o debug durante o desenvolvimento
     if (is.dev) {
       mainWindow.webContents.openDevTools({ mode: 'right' })
     }
@@ -63,14 +77,16 @@ function createWindow(): void {
     }
   })
 
-  // Debug: loga erros do renderer
+  // Debug: captura crash do renderer process
+  // Isso é crucial para diagnosticar problemas em produção
   mainWindow.webContents.on('render-process-gone', (_event, details) => {
     logger.error('renderer', 'Renderer process crashed', details)
   })
 
+  // Debug: captura warnings e erros do console do renderer
+  // level >= 2 significa warn(2) ou error(3)
   mainWindow.webContents.on('console-message', (_event, level, message, line, sourceId) => {
     if (level >= 2) {
-      // warn ou error
       logger.warn('renderer-console', `[${sourceId}:${line}] ${message}`)
     }
   })
@@ -142,7 +158,7 @@ function registerIpcHandlers(): void {
     })
     if (canceled || filePaths.length === 0) return null
     const content = readFileSync(filePaths[0], 'utf-8')
-    const fileName = filePaths[0].split(/[\\/]/).pop() || 'Nota importada'
+    const fileName = filePaths[0].split(/[\\\/]/).pop() || 'Nota importada'
     const title = fileName.replace(/\.(txt|md)$/, '')
     logger.info('ipc', `Nota importada: ${title}`)
     return createNote(title, content)
@@ -173,6 +189,7 @@ function configureSecurityHeaders(): void {
 }
 
 app.whenReady().then(() => {
+  // Loga informações do ambiente (muito útil para diagnosticar problemas)
   logger.info('app', `App iniciado (${is.dev ? 'dev' : 'prod'})`)
   logger.info('app', `Electron ${process.versions.electron}, Node ${process.versions.node}`)
 
@@ -202,11 +219,15 @@ app.on('before-quit', () => {
   closeDatabase()
 })
 
-// Captura erros não tratados
+// Captura erros não tratados no main process.
+// Sem isso, o app fecharia silenciosamente sem nenhum log.
+// Com isso, o erro é gravado no arquivo de log para análise posterior.
 process.on('uncaughtException', (error) => {
   logger.error('app', 'Erro não tratado', { message: error.message, stack: error.stack })
 })
 
+// Captura Promises rejeitadas sem .catch()
+// Comum em código async/await onde esquecemos de tratar erros
 process.on('unhandledRejection', (reason) => {
   logger.error('app', 'Promise rejeitada não tratada', { reason })
 })
